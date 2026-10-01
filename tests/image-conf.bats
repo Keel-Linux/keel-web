@@ -16,6 +16,8 @@ setup() {
         "$ROOT/etc/nginx/modules-enabled" "$ROOT/etc/nginx/conf.d" "$ROOT/$WANTS"
     ln -s /etc/nginx/sites-available/default "$ROOT/etc/nginx/sites-enabled/default"
     echo "BIND=[::1]:8923" > "$ROOT/etc/anubis/keel.env"
+    mkdir -p "$ROOT/var/www/html"
+    echo "<title>Keel Web</title>" > "$ROOT/var/www/html/index.html"
 }
 
 teardown() {
@@ -87,6 +89,16 @@ teardown() {
     run bash "$CONF"
     [ "$status" -eq 1 ]
     [[ "$output" == *"FATAL: Debian's default site is not enabled in the image"* ]]
+}
+
+# common's removelist deletes /var/www/html, Debian's content included, and
+# the recipe's overlay puts Keel Web's page there
+
+@test "a default site with no page fails the build" {
+    rm "$ROOT/var/www/html/index.html"
+    run bash "$CONF"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"FATAL: /var/www/html/index.html, the page of the default site, is not in the image"* ]]
 }
 
 @test "every problem is reported, not only the first" {

@@ -14,6 +14,7 @@
 #   and configuration not linked into Nginx, the Anubis front of keel-web
 #   not linked; Debian's default site enabled. keel spec apply turns them
 #   on where the instance spec says so.
+# - A page for the default site, /var/www/html/index.html.
 #
 # KEEL_CONF_ROOT is the tree to work on, empty (the chroot's /) in a build;
 # tests/image-conf.bats sets it to a scratch tree.
@@ -50,6 +51,12 @@ fi
 
 if ! present /etc/nginx/sites-enabled/default; then
     fatal "Debian's default site is not enabled in the image"
+fi
+
+# common's removelist deletes /var/www/html with Debian's page in it; the
+# overlay of this recipe puts Keel Web's there
+if [ ! -f "$root/var/www/html/index.html" ]; then
+    fatal "/var/www/html/index.html, the page of the default site, is not in the image"
 fi
 
 exit "$failed"

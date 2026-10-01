@@ -51,7 +51,7 @@ rendered by `keel spec apply --conf <rootfs>/etc/inithooks.conf --root
     keel manifest show web --resolved     # the Web table of decision 0041
     systemctl is-active anubis@keel       # inactive
     ls /etc/nginx/modules-enabled         # no 50-mod-http-coraza.conf
-    curl -s http://[<address>]/           # Debian's default page, from Nginx
+    curl -s http://[<address>]/           # the page of the default site, from Nginx
     grep '^check' /etc/keel/monit/keel-manifest.conf
 
 and Monit's file checks sshd, webmin, postfix and nginx with its

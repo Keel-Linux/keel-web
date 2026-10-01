@@ -14,7 +14,8 @@ An appliance recipe and the package it installs, written by the project
 | --- | --- | --- |
 | `Makefile` | the Webmin firewall ports and the include of `turnkey.mk` from common | the image build |
 | `plan/main` | `#include <turnkey/base>` and `keel-web` | the image build |
-| `conf.d/main` | fails the build when the image is not in the simple state: an Anubis key, a record of the state hooks, Anubis enabled, Coraza linked, the Anubis front linked, Debian's default site not enabled | 100 percent, see below |
+| `conf.d/main` | fails the build when the image is not in the simple state: an Anubis key, a record of the state hooks, Anubis enabled, Coraza linked, the Anubis front linked, Debian's default site not enabled, no page for it | 100 percent, see below |
+| `overlay/var/www/html/index.html` | the page of the default site: common's removelist deletes `/var/www/html`, Debian's page with it | data |
 | `packages/keel-web/manifest.yaml` | the appliance manifest of Keel Web, the format's worked example byte for byte | `tests/package.bats`, and `keel manifest validate` on the image |
 | `packages/keel-web/default-anubis` | Debian's default site behind Anubis | `tests/package.bats`, and the image run |
 | `packages/keel-web/anubis-front` | the state hook keel runs when the anubis overlay is turned on or off | 100 percent, see below |
@@ -41,7 +42,7 @@ on the built image (`tests/README.md`, "The package on a built image").
 | --- | --- | --- |
 | `tests/lib/boot-test-lib.sh` | 100 percent (109 of 109 lines, 30 bats tests, kcov 43) | `COVERAGE_THRESHOLD=100 tests/coverage.sh` |
 | `packages/keel-web/anubis-front` | 100 percent (81 of 81 lines, 22 bats tests, kcov 43) | the same |
-| `conf.d/main` | 100 percent (16 of 16 lines, 10 bats tests, kcov 43), run against a scratch tree through `KEEL_CONF_ROOT` | the same |
+| `conf.d/main` | 100 percent (18 of 18 lines, 11 bats tests, kcov 43), run against a scratch tree through `KEEL_CONF_ROOT` | the same |
 | `packages/keel-web` | built with `dpkg-buildpackage` and linted clean with lintian on trixie; its fields, files, postrm, site and manifest read back by 20 bats tests | `tests/package.bats`, the check `packages / build` |
 | The image | built in isolation on 2026-10-01, core then web, from the packages of this branch and of keel#63; booted in LXC in a simple installation and moved to cloud simple through the spec | `tests/README.md`, "The package on a built image" |
 
