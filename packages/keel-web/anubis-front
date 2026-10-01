@@ -99,7 +99,9 @@ enable() {
     fi
     may_unlink_debian
     # recorded before the link goes, so that a failed write never loses it
-    mkdir -p "$STATE_DIR" 2>/dev/null && : > "$RECORD" 2>/dev/null || fail "cannot record the change in $RECORD; nothing changed"
+    if ! { mkdir -p "$STATE_DIR" && : > "$RECORD"; } 2>/dev/null; then
+        fail "cannot record the change in $RECORD; nothing changed"
+    fi
     rm -f "$DEBIAN_LINK"
     ln -sfn "$FRONT_SITE" "$FRONT_LINK"
     if ! nginx -t; then
