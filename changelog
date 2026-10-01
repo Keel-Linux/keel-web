@@ -1,0 +1,19 @@
+keel-web-19.0 (1) keel; urgency=low
+
+  * First release of Keel Web (handbook decisions 0030 and 0041, step 7
+    of its first implementation), a layer on Keel Core: plan/main
+    installs keel-web, the appliance manifest, which brings the nginx,
+    coraza and anubis overlays. A simple installation is plain Nginx
+    serving Debian's default site, with Coraza's module not loaded and
+    Anubis stopped; the cloud modes turn both on through keel spec apply,
+    and the anubis state hook of keel-web puts the default site behind
+    Anubis.
+  * The overlay ships /var/www/html/index.html, the page of the default
+    site: common's removelist deletes /var/www/html, Debian's page with
+    it, so the default site answered 404 on the first build.
+  * conf.d/main fails the build on an Anubis signing key, a record of
+    the overlays' state hooks, Anubis enabled, Coraza linked into Nginx,
+    the Anubis front linked, Debian's default site not enabled, or no
+    page for it.
+
+ -- Marcos Méndez <mendez.foto@gmail.com>  Thu, 01 Oct 2026 20:00:00 +0000

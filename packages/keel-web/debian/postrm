@@ -1,0 +1,31 @@
+#!/bin/sh
+# keel-web: on purge, the Anubis front's conffile goes, so its link in
+# sites-enabled/ must go too, or the next reload of Nginx fails on a
+# missing file. Debian's default site is linked again when the state hook
+# had unlinked it and nothing took its place. A remove keeps both: the
+# conffile stays until the purge, and the link with it. Paths are under
+# DPKG_ROOT, as dpkg sets it (empty on a machine); tests/package.bats
+# runs this script against a scratch root that way.
+set -e
+
+R="${DPKG_ROOT:-}"
+FRONT_SITE=/etc/nginx/sites-available/default-anubis
+DEBIAN_SITE=/etc/nginx/sites-available/default
+FRONT="$R/etc/nginx/sites-enabled/default-anubis"
+DEBIAN="$R/etc/nginx/sites-enabled/default"
+STATE="$R/var/lib/keel-web"
+
+if [ "$1" = purge ]; then
+    if [ "$(readlink "$FRONT" || true)" = "$FRONT_SITE" ]; then
+        rm -f "$FRONT"
+    fi
+    if [ -f "$STATE/debian-default-unlinked" ] && [ ! -e "$DEBIAN" ] \
+            && [ ! -L "$DEBIAN" ] && [ -f "$R$DEBIAN_SITE" ]; then
+        ln -s "$DEBIAN_SITE" "$DEBIAN"
+    fi
+    rm -rf "$STATE"
+fi
+
+#DEBHELPER#
+
+exit 0

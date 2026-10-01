@@ -1,0 +1,22 @@
+keel-web (0.1.0) trixie; urgency=medium
+
+  * First release (handbook decision 0041, first implementation, step 7).
+    Ships the appliance manifest of Keel Web from docs/manifest-v1.md as
+    /usr/share/keel/appliances/web.yaml: Core plus nginx, enabled in every
+    mode, and coraza and anubis, disabled in simple and enabled in the
+    cloud modes. Web has no process of its own.
+  * Ships /etc/nginx/sites-available/default-anubis, Debian's default site
+    behind Anubis, and /usr/lib/keel/overlays/anubis/state.d/50keel-web,
+    which keel spec apply runs when the anubis overlay is turned on or
+    off: it puts that front in place of Debian's default site, and back,
+    tested with nginx -t and reloaded. It only ever replaces Debian's
+    unedited default link: an edited default site is refused, and with no
+    Debian link the operator's default server is left alone, and the hook
+    says so. The change is recorded before Debian's link goes.
+  * Depends on keel-core, the three Web overlays and keel (>= 0.15.0), the
+    first keel that runs the overlays' state hooks, and on
+    keel-overlay-coraza (>= 0.1.1), which declares its state hook and keeps
+    gzip answers whole while Coraza is on
+    (Keel-Linux/libnginx-mod-http-coraza#2).
+
+ -- Marcos Mendez <mendez.foto@gmail.com>  Thu, 01 Oct 2026 20:00:00 +0000

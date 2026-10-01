@@ -1,0 +1,49 @@
+# The keel-web package of packages/keel-web (handbook decision 0041, first
+# implementation, step 7). The check is "build / trixie".
+#
+# The package is built, source and binary, with dpkg-buildpackage and
+# linted with lintian, any error or warning failing, on trixie, the
+# release it is for; then tests/package.bats builds it again and reads back
+# its fields, its files, its postrm and the manifest. Nothing is signed or
+# published: publishing is the maintainer's attended release
+# (Keel-Linux/apt, docs/build-host.md). What the package does on a
+# machine, the manifest resolving and keel turning Coraza and Anubis on
+# and off from it, is proven on the built image (tests/README.md, "The
+# package on a built image").
+#
+# The job runs in a Debian trixie system container, an unprivileged LXC
+# container with its own systemd on the self-hosted runner keel-lxc-1,
+# through the reusable workflow lxc-trixie.yml of Keel-Linux/.github, as
+# keel-core's does. Keel runs no application containers in CI. A pull
+# request from a fork never reaches the self-hosted runner, so it gets no
+# build, lint or package.bats result here.
+name: packages
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    uses: keel-linux/.github/.github/workflows/lxc-trixie.yml@main
+    with:
+      timeout: 15
+      artifact-dir: dist
+      artifact-name: keel-web-deb
+      run: |
+        apt-get update -qq
+        apt-get install -y -qq --no-install-recommends \
+          ca-certificates git build-essential debhelper lintian bats \
+          python3-yaml
+        work="$(mktemp -d)"
+        cp -a packages/keel-web "$work/src"
+        (cd "$work/src" && dpkg-buildpackage -us -uc)
+        lintian --fail-on error,warning --info --display-info \
+          "$work"/keel-web_*.changes
+        mkdir -p dist
+        cp "$work"/*.deb "$work"/*.dsc "$work"/*.tar.* "$work"/*.changes dist/
+        bats tests/package.bats

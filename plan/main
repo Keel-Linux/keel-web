@@ -1,0 +1,9 @@
+#include <turnkey/base>
+
+/* The appliance manifest of Keel Web (handbook decision 0041, step 7 of
+   its first implementation), from packages/keel-web. It depends on
+   keel-core and on the three Web overlays of common, which bring trixie's
+   nginx, Keel's Coraza module with the OWASP Core Rule Set, and Keel's
+   Anubis, and leave Coraza and Anubis off, the state of a simple
+   installation. conf.d/main checks that state. */
+keel-web

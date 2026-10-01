@@ -1,0 +1,32 @@
+Source: keel-web
+Section: httpd
+Priority: optional
+Maintainer: KeelLinux maintainers <admin@keellinux.org>
+Uploaders: Marcos Mendez <mendez.foto@gmail.com>
+Build-Depends:
+ debhelper-compat (= 13),
+Standards-Version: 4.7.2
+Rules-Requires-Root: no
+Vcs-Git: https://github.com/Keel-Linux/keel-web.git -b master [packages/keel-web]
+Vcs-Browser: https://github.com/Keel-Linux/keel-web/tree/master/packages/keel-web
+
+Package: keel-web
+Architecture: all
+Depends:
+ keel (>= 0.15.0),
+ keel-core,
+ keel-overlay-anubis,
+ keel-overlay-coraza (>= 0.1.1),
+ keel-overlay-nginx,
+ ${misc:Depends},
+Description: Keel Web, the base of every Keel web appliance
+ The appliance manifest of Keel Web (handbook decisions 0030 and 0041),
+ installed as /usr/share/keel/appliances/web.yaml: Keel Core plus the
+ nginx, coraza and anubis overlays, Nginx alone in a simple installation
+ and the three of them in the cloud modes.
+ .
+ It also ships the Anubis front of the default site,
+ /etc/nginx/sites-available/default-anubis, and the state hook that keel
+ spec apply runs when the anubis overlay is turned on or off, which puts
+ that front in place of Debian's default site and back. Installing it
+ enables nothing.

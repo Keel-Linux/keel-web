@@ -1,0 +1,45 @@
+# Instance spec of the boot test (format: docs/spec.md of the keel
+# repository). IPv6 first, from the bridge; no certificate request; the
+# root password is a file the test writes into the rootfs before booting.
+#
+# The values are what a container assembled from the web layer must look
+# like once its first boot has finished, so `keel diff` finding no drift
+# is the verdict. One of them is not what a reader would guess:
+#
+#   ipv6.method: dhcp   ifupdown has no SLAAC method, so `inet6 dhcp` is
+#                       what the hook writes for `auto` as well and what
+#                       inspect reads back, which is why diff can only
+#                       call the field unknown offline (docs/spec.md).
+version: 1
+
+instance:
+  hostname: web
+  fqdn: web.example.org
+
+network:
+  managed_by: host
+  interfaces:
+    eth0:
+      ipv4:
+        method: dhcp
+      ipv6:
+        method: dhcp
+
+tls:
+  acme:
+    enabled: false
+
+secrets:
+  root_password:
+    file: /etc/keel/secrets/root_password
+
+hub:
+  api_key: skip
+
+security:
+  alerts: skip
+  # A first boot input, not machine state: 95secupdates installs the pending
+  # security updates once. diff does not compare it.
+  updates_at_first_boot: force
+
+first_login_wizard: false
