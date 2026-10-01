@@ -47,7 +47,9 @@ listed() {
 @test "it depends on Core, the three Web overlays and the keel that runs state hooks" {
     run dpkg-deb -f "$DEB" Depends
     [ "$status" -eq 0 ]
-    [ "$output" = "keel (>= 0.15.0), keel-core, keel-overlay-anubis, keel-overlay-coraza, keel-overlay-nginx" ]
+    # keel-overlay-coraza 0.1.1 declares its state hook and keeps gzip
+    # answers whole (Keel-Linux/libnginx-mod-http-coraza#2)
+    [ "$output" = "keel (>= 0.15.0), keel-core, keel-overlay-anubis, keel-overlay-coraza (>= 0.1.1), keel-overlay-nginx" ]
 }
 
 @test "the manifest is installed as /usr/share/keel/appliances/web.yaml, 0644 root" {
@@ -149,13 +151,12 @@ postrm_root() {
     [ "$output" = 1 ]
 }
 
-@test "site: nothing is compressed on the hop to Anubis" {
-    # the socket server is the only one with gzip off, and the only one
-    # Anubis reads; see the comment in the site for why
-    run grep -c $'^\tgzip off;$' "$PACKAGE_DIR/default-anubis"
-    [ "$output" = 1 ]
-    run awk '/listen unix:\/run\/nginx\/keel-app.sock;/ { s = 1 } s && /gzip off;/ { print "inside"; exit }' "$PACKAGE_DIR/default-anubis"
-    [ "$output" = inside ]
+# Anubis asks the socket for gzip and passes it on to a client that
+# accepts it (measured), so the socket keeps Debian's gzip on: the front
+# does not compress what it proxies
+@test "site: the socket Anubis reads keeps gzip, so browsers get it" {
+    run grep -c 'gzip' "$PACKAGE_DIR/default-anubis"
+    [ "$output" = 0 ]
 }
 
 @test "site: the content is Debian's default site's, /var/www/html" {

@@ -11,12 +11,14 @@
 # server takes the default server on port 80 and sends every request
 # through /etc/nginx/snippets/keel-anubis.conf of keel-overlay-anubis, and
 # what Anubis allows comes back on unix:/run/nginx/keel-app.sock, where
-# /var/www/html is served. Debian's link is removed only while it points to
-# Debian's file and that file is still the one nginx-common shipped (its
-# conffile checksum); an edited default site is the operator's and is left
-# alone, and the run refuses (decision 0042, "Debian's default site", has
-# keel's sites take the same care). The removal is recorded, so disabled
-# puts the link back.
+# /var/www/html is served. The front only ever replaces Debian's link, and
+# only while it points to Debian's file and that file is still the one
+# nginx-common shipped (its conffile checksum); an edited default site is
+# the operator's and is left alone, and the run refuses (decision 0042,
+# "Debian's default site", has keel's sites take the same care). With no
+# Debian link the default server is the operator's: nothing is changed,
+# and the run says so. The removal is recorded before the link goes, so
+# disabled puts it back and a failed record never loses it.
 #
 # disabled: removes the front, and puts Debian's link back if this hook
 # removed it and nothing took its place meanwhile.
@@ -73,9 +75,8 @@ pristine() {
     [ -n "$shipped" ] && [ "$shipped" = "$current" ]
 }
 
-# Debian's link, if there, may go: it points to Debian's unedited file
+# Debian's link may go: it points to Debian's unedited file
 may_unlink_debian() {
-    [ -e "$DEBIAN_LINK" ] || [ -L "$DEBIAN_LINK" ] || return 0
     refuse_file "$DEBIAN_LINK"
     local target
     target="$(readlink "$DEBIAN_LINK")"
@@ -89,40 +90,38 @@ enable() {
         return 0
     fi
     refuse_file "$FRONT_LINK"
-    may_unlink_debian
-    local unlinked=no
-    if [ -L "$DEBIAN_LINK" ]; then
-        rm -f "$DEBIAN_LINK"
-        unlinked=yes
+    # The front only ever takes Debian's place. Without Debian's link the
+    # default server is whatever the operator made it, and the front's
+    # default_server would take it from them.
+    if [ ! -e "$DEBIAN_LINK" ] && [ ! -L "$DEBIAN_LINK" ]; then
+        say "Debian's default site is not enabled, so the default server is the operator's: it is left alone, and Anubis is put in front of no site"
+        return 0
     fi
+    may_unlink_debian
+    # recorded before the link goes, so that a failed write never loses it
+    mkdir -p "$STATE_DIR" 2>/dev/null && : > "$RECORD" 2>/dev/null || fail "cannot record the change in $RECORD; nothing changed"
+    rm -f "$DEBIAN_LINK"
     ln -sfn "$FRONT_SITE" "$FRONT_LINK"
     if ! nginx -t; then
-        undo_enable "$unlinked"
+        undo_enable
         fail "nginx -t refused the configuration with the front; rolled back"
     fi
     if ! running; then
-        record "$unlinked"
         say "enabled: the default site goes through Anubis (nginx is not running: it reads it at its start)"
         return 0
     fi
     if ! nginx -s reload; then
-        undo_enable "$unlinked"
+        undo_enable
         nginx -s reload || :
         fail "nginx -s reload failed; rolled back"
     fi
-    record "$unlinked"
     say "enabled: the default site goes through Anubis"
 }
 
 undo_enable() {
     rm -f "$FRONT_LINK"
-    [ "$1" = no ] || ln -sfn "$DEBIAN_SITE" "$DEBIAN_LINK"
-}
-
-record() {
-    [ "$1" = yes ] || return 0
-    mkdir -p "$STATE_DIR"
-    : > "$RECORD"
+    ln -sfn "$DEBIAN_SITE" "$DEBIAN_LINK"
+    rm -f "$RECORD"
 }
 
 disable() {

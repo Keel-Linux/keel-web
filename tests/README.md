@@ -15,8 +15,10 @@ completes headless from an instance spec, and the machine matches the spec.
   state hook of the anubis overlay. It runs against a scratch `/etc/nginx`
   named by `KEEL_NGINX_DIR`, with `nginx` and `dpkg-query` as stubs first
   in `PATH`: the front put in place of Debian's default site and back, an
-  edited default site or a link of the operator's left alone, the rollback
-  when `nginx -t` or the reload fails, and Nginx stopped.
+  edited default site or a link of the operator's left alone, no front at
+  all where Debian's link is gone (the default server is the operator's),
+  the record written before the link goes, the rollback when the record,
+  `nginx -t` or the reload fails, and Nginx stopped.
 - `image-conf.bats`: unit tests of `conf.d/main`, run against a scratch
   tree named by `KEEL_CONF_ROOT`.
 - `package.bats`: builds `packages/keel-web` with `dpkg-buildpackage` and

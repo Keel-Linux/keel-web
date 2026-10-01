@@ -145,12 +145,26 @@ not_recorded() {
     debian_linked
 }
 
-@test "enabled with Debian's default already unlinked adds the front and records nothing" {
+# Debian's link gone is the operator's choice, and the default server may
+# be a site of theirs: the front would take default_server from it
+@test "enabled with Debian's default unlinked leaves the default server alone and says so" {
     rm "$N/sites-enabled/default"
     run bash "$HOOK" enabled
     [ "$status" -eq 0 ]
-    front_linked
+    [[ "$output" == *"Debian's default site is not enabled"*"left alone"* ]]
+    [ ! -e "$N/sites-enabled/default-anubis" ] && [ ! -L "$N/sites-enabled/default-anubis" ]
     not_recorded
+    [ ! -s "$CALLS" ]
+}
+
+@test "enabled refuses and keeps Debian's link when the record cannot be written" {
+    echo "a file where the state directory goes" > "$T/state"
+    run bash "$HOOK" enabled
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"cannot record"* ]]
+    debian_linked
+    [ ! -L "$N/sites-enabled/default-anubis" ]
+    [ ! -s "$CALLS" ]
 }
 
 @test "enabled rolls back when nginx -t refuses the result" {
@@ -213,12 +227,21 @@ not_recorded() {
     [ ! -s "$CALLS" ]
 }
 
-@test "disabled makes no Debian link that was not there before the front" {
+@test "disabled makes no Debian link that was not there before" {
     rm "$N/sites-enabled/default"
     bash "$HOOK" enabled
     run bash "$HOOK" disabled
     [ "$status" -eq 0 ]
+    [[ "$output" == *"unchanged (disabled)"* ]]
     [ ! -e "$N/sites-enabled/default" ] && [ ! -L "$N/sites-enabled/default" ]
+}
+
+@test "a rollback of enabled forgets the record it wrote" {
+    : > "$T/t-fails"
+    run bash "$HOOK" enabled
+    [ "$status" -eq 1 ]
+    debian_linked
+    not_recorded
 }
 
 @test "disabled keeps a default link the operator made meanwhile" {
