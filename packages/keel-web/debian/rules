@@ -1,0 +1,17 @@
+#!/usr/bin/make -f
+# The appliance manifest, the Anubis front of the default site and the
+# state hook sit beside debian/ (docs/manifest-v1.md in the handbook,
+# "Kinds, and where each file lives") and are installed under the names
+# keel and Nginx look them up by. The site is a conffile; nothing links it
+# at installation, which is the hook's when the anubis overlay is enabled.
+
+PKG = debian/keel-web
+
+%:
+	dh $@
+
+execute_after_dh_auto_install:
+	install -D -m 0644 manifest.yaml $(PKG)/usr/share/keel/appliances/web.yaml
+	install -D -m 0644 default-anubis $(PKG)/etc/nginx/sites-available/default-anubis
+	install -D -m 0755 anubis-front \
+		$(PKG)/usr/lib/keel/overlays/anubis/state.d/50keel-web

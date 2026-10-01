@@ -15,7 +15,15 @@ base of every Keel web appliance (handbook decisions 0030, 0036 and 0041).
 The recipe (``Makefile``, ``plan/main``, ``conf.d``) builds the layer, and
 ``packages/keel-web`` is the ``keel-web`` package: the appliance manifest
 keel reads and the pieces of Nginx configuration that belong to the
-appliance rather than to an overlay.
+appliance rather than to an overlay. Test state and plan: ``COVERAGE.md``;
+how to run the tests, and what was shown on a built image:
+``tests/README.md``.
+
+Until keel renders the sites of decision 0042, Keel Web serves one site,
+Debian's default site. When the ``anubis`` overlay is turned on, the state
+hook of ``keel-web`` puts ``/etc/nginx/sites-available/default-anubis``
+(the same content, behind Anubis) in its place, and puts Debian's back
+when it is turned off.
 
 The project's contributions to this repository are licensed
 GPL-3.0-or-later (``LICENSE``; project decision 0007). The organization

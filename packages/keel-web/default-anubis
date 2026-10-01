@@ -1,0 +1,39 @@
+# keel-web: Debian's default site with Anubis in front of it (handbook
+# decisions 0030 and 0041, step 7). Linked from sites-enabled/ in place of
+# Debian's `default` while the anubis overlay is enabled, by
+# /usr/lib/keel/overlays/anubis/state.d/50keel-web, which keel spec apply
+# runs; never by hand, and never at installation.
+#
+# The pipeline of 0030: Nginx takes the request (Coraza, when its overlay
+# is enabled, inspects it here, in the http block), Anubis decides, and
+# what it allows comes back to Nginx on a unix socket, where the content
+# is served. Anubis keys on the client's address, which the snippet passes
+# in X-Real-IP; the socket trusts that header from unix: only, so nothing
+# outside the machine can set it (0042, "Real client IP").
+#
+# Until keel renders sites of its own (0042), this is the one site Keel
+# Web serves: the content of Debian's default site, /var/www/html.
+
+server {
+	listen [::]:80 default_server;
+	listen 80 default_server;
+	server_name _;
+
+	location / {
+		include /etc/nginx/snippets/keel-anubis.conf;
+	}
+}
+
+server {
+	listen unix:/run/nginx/keel-app.sock;
+	server_name _;
+	set_real_ip_from unix:;
+	real_ip_header X-Real-IP;
+
+	root /var/www/html;
+	index index.html index.htm index.nginx-debian.html;
+
+	location / {
+		try_files $uri $uri/ =404;
+	}
+}

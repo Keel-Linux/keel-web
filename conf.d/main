@@ -1,0 +1,55 @@
+#!/bin/bash -e
+# Run by fab in the image chroot of the web layer, after the packages of
+# plan/main are in. It changes nothing: it fails the build when the image
+# is not what a simple installation of Keel Web starts from (handbook
+# decisions 0030 and 0041), reporting every problem it finds.
+#
+# - No Anubis signing key. keel-overlay-anubis makes it on the machine, at
+#   the first start of anubis@keel.service; one in the image would be every
+#   machine's (the secret anubis_signing_key, shared within a set only).
+# - No record of the overlays' state hooks under /var/lib/keel/overlays: a
+#   record makes keel skip a hook, so the first apply on the machine must
+#   find none.
+# - Coraza and Anubis off: anubis@keel.service not enabled, Coraza's module
+#   and configuration not linked into Nginx, the Anubis front of keel-web
+#   not linked; Debian's default site enabled. keel spec apply turns them
+#   on where the instance spec says so.
+#
+# KEEL_CONF_ROOT is the tree to work on, empty (the chroot's /) in a build;
+# tests/image-conf.bats sets it to a scratch tree.
+root="${KEEL_CONF_ROOT:-}"
+failed=0
+
+fatal() {
+    echo "FATAL: $*" >&2
+    failed=1
+}
+
+present() {
+    [ -e "$root$1" ] || [ -L "$root$1" ]
+}
+
+for path in /etc/anubis/keel.key \
+        /etc/nginx/modules-enabled/50-mod-http-coraza.conf \
+        /etc/nginx/conf.d/keel-coraza.conf \
+        /etc/nginx/sites-enabled/default-anubis; do
+    if present "$path"; then
+        fatal "$path is in the image"
+    fi
+done
+
+for path in "$root"/var/lib/keel/overlays/*; do
+    if [ -e "$path" ]; then
+        fatal "${path#"$root"} is in the image"
+    fi
+done
+
+if present /etc/systemd/system/multi-user.target.wants/anubis@keel.service; then
+    fatal "anubis@keel.service is enabled in the image"
+fi
+
+if ! present /etc/nginx/sites-enabled/default; then
+    fatal "Debian's default site is not enabled in the image"
+fi
+
+exit "$failed"

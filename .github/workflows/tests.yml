@@ -1,0 +1,43 @@
+name: tests
+on:
+  pull_request:
+  push:
+    branches: [master]
+jobs:
+  tests:
+    # Unit tests of the project-authored shell (decision 0004): the boot
+    # test's helper library (tests/lib/boot-test-lib.sh), the anubis state
+    # hook of the package (packages/keel-web/anubis-front) and the image's
+    # conf script (conf.d/main), each under bats and kcov through
+    # tests/coverage.sh. Threshold is the number measured in COVERAGE.md
+    # (100 percent for all three, 2026-10-01) and is only ever raised
+    # (decision 0006). This job produces the check "tests / coverage".
+    uses: keel-linux/.github/.github/workflows/test-shell.yml@main
+    with:
+      threshold: 100
+  appliance:
+    # The boot test (org-plan section 1), as keel-core runs it: the web
+    # layer is fetched from https://mirror.keellinux.org/layers with the
+    # core layer under it, verified, assembled into a scratch rootfs,
+    # booted in LXC and checked by tests/boot-test.sh, on the self-hosted
+    # runner. Nothing is built there; the build host publishes the layers.
+    # So what boots is the layer the mirror publishes, never this branch:
+    # the evidence for a branch is its isolated build (tests/README.md).
+    #
+    # Gated on the organization variable KEEL_LXC_RUNNER, as the reusable
+    # workflow requires (a job aimed at the keel-lxc label with no such
+    # runner stays queued for 24 hours). This job produces the check
+    # "appliance / boot-published-layer".
+    if: vars.KEEL_LXC_RUNNER == 'true'
+    uses: keel-linux/.github/.github/workflows/test-appliance.yml@main
+    with:
+      appliance: web
+      # A layer on core; the workflow checks this against the parent the
+      # published manifest records.
+      parent: core
+      # The web layer has never been published: the first one is the
+      # maintainer's attended release of this recipe. Until then the job
+      # passes saying so, in its summary; once the mirror answers for the
+      # web layer this input is an error and must be removed.
+      allow_unpublished: true
+      timeout: 60

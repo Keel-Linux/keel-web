@@ -1,0 +1,162 @@
+#!/bin/bash
+# /usr/lib/keel/overlays/anubis/state.d/50keel-web enabled|disabled
+#
+# Keel Web's default site, with or without Anubis in front of it (handbook
+# decisions 0030 and 0041, step 7). keel spec apply runs it when the anubis
+# overlay is turned on or off: after anubis@keel.service starts, and
+# before it stops (keel's docs/apply.md, "State hooks").
+#
+# enabled: replaces the link sites-enabled/default (Debian's default site)
+# with sites-enabled/default-anubis, the same content behind Anubis: its
+# server takes the default server on port 80 and sends every request
+# through /etc/nginx/snippets/keel-anubis.conf of keel-overlay-anubis, and
+# what Anubis allows comes back on unix:/run/nginx/keel-app.sock, where
+# /var/www/html is served. Debian's link is removed only while it points to
+# Debian's file and that file is still the one nginx-common shipped (its
+# conffile checksum); an edited default site is the operator's and is left
+# alone, and the run refuses (decision 0042, "Debian's default site", has
+# keel's sites take the same care). The removal is recorded, so disabled
+# puts the link back.
+#
+# disabled: removes the front, and puts Debian's link back if this hook
+# removed it and nothing took its place meanwhile.
+#
+# Either way the result is tested with `nginx -t` and Nginx reloaded when
+# it runs; a refused test puts the links back as they were and fails, and
+# a failed reload after enabled does the same and reloads again.
+#
+# Exit codes: 0 done or unchanged, 1 refused or rolled back, 2 usage.
+#
+# The KEEL_* variables exist for tests/anubis-front.bats; on a machine the
+# defaults are the paths of trixie's nginx.
+set -euo pipefail
+
+NGINX_DIR="${KEEL_NGINX_DIR:-/etc/nginx}"
+STATE_DIR="${KEEL_WEB_STATE_DIR:-/var/lib/keel-web}"
+PID_FILE="${KEEL_NGINX_PID:-/run/nginx.pid}"
+
+FRONT_SITE="$NGINX_DIR/sites-available/default-anubis"
+FRONT_LINK="$NGINX_DIR/sites-enabled/default-anubis"
+DEBIAN_SITE="$NGINX_DIR/sites-available/default"
+DEBIAN_LINK="$NGINX_DIR/sites-enabled/default"
+# the conffile as dpkg names it, whatever NGINX_DIR is
+DEBIAN_CONFFILE=/etc/nginx/sites-available/default
+RECORD="$STATE_DIR/debian-default-unlinked"
+
+say() {
+    echo "keel-web: $*"
+}
+
+fail() {
+    say "$*" >&2
+    exit 1
+}
+
+running() {
+    local pid
+    pid="$(cat "$PID_FILE" 2>/dev/null)" || return 1
+    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+
+# a file of the operator's where a link of this hook goes is never replaced
+refuse_file() {
+    if [ -e "$1" ] && [ ! -L "$1" ]; then
+        fail "$1 is not a link; it is left alone, move it away first"
+    fi
+}
+
+# Debian's default site as nginx-common shipped it
+pristine() {
+    local shipped current
+    shipped="$(dpkg-query -W -f='${Conffiles}\n' nginx-common 2>/dev/null | awk -v f="$DEBIAN_CONFFILE" '$1 == f { print $2 }')" || return 1
+    current="$(md5sum < "$DEBIAN_SITE" 2>/dev/null | cut -d' ' -f1)" || return 1
+    [ -n "$shipped" ] && [ "$shipped" = "$current" ]
+}
+
+# Debian's link, if there, may go: it points to Debian's unedited file
+may_unlink_debian() {
+    [ -e "$DEBIAN_LINK" ] || [ -L "$DEBIAN_LINK" ] || return 0
+    refuse_file "$DEBIAN_LINK"
+    local target
+    target="$(readlink "$DEBIAN_LINK")"
+    [ "$target" = "$DEBIAN_SITE" ] || fail "$DEBIAN_LINK points to $target, not Debian's default site; it is left alone and Anubis is not put in front of it"
+    pristine || fail "$DEBIAN_SITE is edited (or nginx-common's checksum cannot be read): it is the operator's, left alone, and Anubis is not put in front of it"
+}
+
+enable() {
+    if [ "$(readlink "$FRONT_LINK" || true)" = "$FRONT_SITE" ]; then
+        say "unchanged (enabled)"
+        return 0
+    fi
+    refuse_file "$FRONT_LINK"
+    may_unlink_debian
+    local unlinked=no
+    if [ -L "$DEBIAN_LINK" ]; then
+        rm -f "$DEBIAN_LINK"
+        unlinked=yes
+    fi
+    ln -sfn "$FRONT_SITE" "$FRONT_LINK"
+    if ! nginx -t; then
+        undo_enable "$unlinked"
+        fail "nginx -t refused the configuration with the front; rolled back"
+    fi
+    if ! running; then
+        record "$unlinked"
+        say "enabled: the default site goes through Anubis (nginx is not running: it reads it at its start)"
+        return 0
+    fi
+    if ! nginx -s reload; then
+        undo_enable "$unlinked"
+        nginx -s reload || :
+        fail "nginx -s reload failed; rolled back"
+    fi
+    record "$unlinked"
+    say "enabled: the default site goes through Anubis"
+}
+
+undo_enable() {
+    rm -f "$FRONT_LINK"
+    [ "$1" = no ] || ln -sfn "$DEBIAN_SITE" "$DEBIAN_LINK"
+}
+
+record() {
+    [ "$1" = yes ] || return 0
+    mkdir -p "$STATE_DIR"
+    : > "$RECORD"
+}
+
+disable() {
+    refuse_file "$FRONT_LINK"
+    if [ ! -L "$FRONT_LINK" ] && [ ! -f "$RECORD" ]; then
+        say "unchanged (disabled)"
+        return 0
+    fi
+    local front relinked=no
+    front="$(readlink "$FRONT_LINK" || true)"
+    rm -f "$FRONT_LINK"
+    if [ -f "$RECORD" ] && [ ! -e "$DEBIAN_LINK" ] && [ ! -L "$DEBIAN_LINK" ]; then
+        ln -s "$DEBIAN_SITE" "$DEBIAN_LINK"
+        relinked=yes
+    fi
+    if ! nginx -t; then
+        [ "$relinked" = no ] || rm -f "$DEBIAN_LINK"
+        [ -z "$front" ] || ln -s "$front" "$FRONT_LINK"
+        fail "nginx -t refused the configuration without the front; the links are put back"
+    fi
+    rm -f "$RECORD"
+    if ! running; then
+        say "disabled: the default site is Debian's (nginx is not running)"
+        return 0
+    fi
+    nginx -s reload || fail "disabled, but nginx -s reload failed: the running workers keep the front until Nginx restarts"
+    say "disabled: the default site is Debian's"
+}
+
+case "${1:-}" in
+    enabled) enable ;;
+    disabled) disable ;;
+    *)
+        echo "usage: anubis-front enabled|disabled" >&2
+        exit 2
+        ;;
+esac
