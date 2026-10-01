@@ -43,7 +43,7 @@ on the built image (`tests/README.md`, "The package on a built image").
 | `tests/lib/boot-test-lib.sh` | 100 percent (109 of 109 lines, 30 bats tests, kcov 43) | `COVERAGE_THRESHOLD=100 tests/coverage.sh` |
 | `packages/keel-web/anubis-front` | 100 percent (81 of 81 lines, 22 bats tests, kcov 43) | the same |
 | `conf.d/main` | 100 percent (18 of 18 lines, 11 bats tests, kcov 43), run against a scratch tree through `KEEL_CONF_ROOT` | the same |
-| `packages/keel-web` | built with `dpkg-buildpackage` and linted clean with lintian on trixie; its fields, files, postrm, site and manifest read back by 20 bats tests | `tests/package.bats`, the check `packages / build` |
+| `packages/keel-web` | built with `dpkg-buildpackage` and linted clean with lintian on trixie; its fields, files, postrm, site and manifest read back by 21 bats tests | `tests/package.bats`, the check `packages / build` |
 | The image | built in isolation on 2026-10-01, core then web, from the packages of this branch and of keel#63; booted in LXC in a simple installation and moved to cloud simple through the spec | `tests/README.md`, "The package on a built image" |
 
 Baseline for the threshold in `.github/workflows/tests.yml`: 100, the

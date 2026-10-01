@@ -30,6 +30,13 @@ server {
 	set_real_ip_from unix:;
 	real_ip_header X-Real-IP;
 
+	# Only Anubis reads this socket, and it decompresses what it gets
+	# before passing it on, so compressing here costs CPU twice for
+	# nothing. It also keeps the pages whole while Coraza is on: a static
+	# file answered with gzip comes back empty under its module
+	# (Keel-Linux/libnginx-mod-http-coraza#2).
+	gzip off;
+
 	root /var/www/html;
 	index index.html index.htm index.nginx-debian.html;
 

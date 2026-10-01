@@ -149,6 +149,15 @@ postrm_root() {
     [ "$output" = 1 ]
 }
 
+@test "site: nothing is compressed on the hop to Anubis" {
+    # the socket server is the only one with gzip off, and the only one
+    # Anubis reads; see the comment in the site for why
+    run grep -c $'^\tgzip off;$' "$PACKAGE_DIR/default-anubis"
+    [ "$output" = 1 ]
+    run awk '/listen unix:\/run\/nginx\/keel-app.sock;/ { s = 1 } s && /gzip off;/ { print "inside"; exit }' "$PACKAGE_DIR/default-anubis"
+    [ "$output" = inside ]
+}
+
 @test "site: the content is Debian's default site's, /var/www/html" {
     grep -q $'^\troot /var/www/html;$' "$PACKAGE_DIR/default-anubis"
     grep -q $'^\tindex index.html index.htm index.nginx-debian.html;$' "$PACKAGE_DIR/default-anubis"
