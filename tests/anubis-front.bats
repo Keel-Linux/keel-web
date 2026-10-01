@@ -61,6 +61,12 @@ recorded() {
     [ -f "$KEEL_WEB_STATE_DIR/debian-default-unlinked" ]
 }
 
+# a plain test, not `! recorded`: bats ignores a negation that is not the
+# last command of a test
+not_recorded() {
+    [ ! -e "$KEEL_WEB_STATE_DIR/debian-default-unlinked" ]
+}
+
 # usage
 
 @test "no argument is a usage error" {
@@ -102,7 +108,7 @@ recorded() {
     [[ "$output" == *"edited"* ]]
     debian_linked
     [ ! -L "$N/sites-enabled/default-anubis" ]
-    ! recorded
+    not_recorded
     [ ! -s "$CALLS" ]
 }
 
@@ -144,7 +150,7 @@ recorded() {
     run bash "$HOOK" enabled
     [ "$status" -eq 0 ]
     front_linked
-    ! recorded
+    not_recorded
 }
 
 @test "enabled rolls back when nginx -t refuses the result" {
@@ -154,7 +160,7 @@ recorded() {
     [[ "$output" == *"nginx -t refused"* ]]
     debian_linked
     [ ! -L "$N/sites-enabled/default-anubis" ]
-    ! recorded
+    not_recorded
     [ "$(cat "$CALLS")" = 'nginx -t [default-anubis ]' ]
 }
 
@@ -165,7 +171,7 @@ recorded() {
     [[ "$output" == *"reload failed"* ]]
     debian_linked
     [ ! -L "$N/sites-enabled/default-anubis" ]
-    ! recorded
+    not_recorded
     [ "$(sed -n 3p "$CALLS")" = 'nginx -s reload [default ]' ]
 }
 
@@ -194,7 +200,7 @@ recorded() {
     [ "$status" -eq 0 ]
     debian_linked
     [ ! -L "$N/sites-enabled/default-anubis" ]
-    ! recorded
+    not_recorded
     [ "$(cat "$CALLS")" = $'nginx -t [default ]\nnginx -s reload [default ]' ]
     [[ "$output" == *"disabled: the default site is Debian's"* ]]
 }
@@ -221,7 +227,7 @@ recorded() {
     run bash "$HOOK" disabled
     [ "$status" -eq 0 ]
     [ "$(readlink "$N/sites-enabled/default")" = /srv/elsewhere ]
-    ! recorded
+    not_recorded
 }
 
 @test "disabled refuses a file of the operator's where the front was" {
