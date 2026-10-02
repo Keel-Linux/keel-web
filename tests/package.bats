@@ -9,6 +9,9 @@ bats_require_minimum_version 1.5.0
 PACKAGE_DIR="$BATS_TEST_DIRNAME/../packages/keel-web"
 HOOK=usr/lib/keel/overlays/anubis/state.d/50keel-web
 SITE=etc/nginx/sites-available/default-anubis
+DOMAINS=usr/lib/keel-web/anubis-redirect-domains
+DROPIN=usr/lib/systemd/system/anubis@keel.service.d/keel-web.conf
+DOMAINS_UNIT=usr/lib/systemd/system/keel-web-anubis-domains.service
 
 setup_file() {
     BUILD=$(mktemp -d)
@@ -51,7 +54,8 @@ listed() {
     # (keel-web#2); keel-overlay-coraza 0.1.2 lets Anubis's pass-challenge
     # through when the site is opened by IP and names the rule it blocks
     # with in its audit log (0.1.1: its state hook, gzip answers whole)
-    [ "$output" = "anubis (>= 1.27.0-0+keel2), keel (>= 0.15.0), keel-core, keel-overlay-anubis, keel-overlay-coraza (>= 0.1.2), keel-overlay-nginx" ]
+    # iproute2: anubis-redirect-domains reads the addresses with ip
+    [ "$output" = "anubis (>= 1.27.0-0+keel2), iproute2, keel (>= 0.15.0), keel-core, keel-overlay-anubis, keel-overlay-coraza (>= 0.1.2), keel-overlay-nginx" ]
 }
 
 @test "the manifest is installed as /usr/share/keel/appliances/web.yaml, 0644 root" {
@@ -82,10 +86,39 @@ listed() {
     [[ "$output" == *"activate-noawait nginx-reload"* ]]
 }
 
-@test "nothing links the front at installation: no file in sites-enabled, no postinst" {
+@test "nothing links the front at installation: no file in sites-enabled, a postinst that links nothing" {
     [ ! -e "$BUILD/root/etc/nginx/sites-enabled" ]
     run dpkg-deb -I "$DEB" postinst
-    [ "$status" -ne 0 ]
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"ln "* ]]
+    [[ "$output" != *sites-enabled* ]]
+}
+
+# the postinst, run against stubs: systemd reads the drop-in, and a
+# running Anubis restarts with REDIRECT_DOMAINS; an image build (no
+# /run/systemd/system) does neither
+postinst_run() {
+    dpkg-deb -e "$DEB" "$BATS_TEST_TMPDIR/control"
+    mkdir -p "$BATS_TEST_TMPDIR/bin"
+    printf '#!/bin/sh\necho "systemctl $*" >> "%s/calls"\n' "$BATS_TEST_TMPDIR" > "$BATS_TEST_TMPDIR/bin/systemctl"
+    printf '#!/bin/sh\necho "deb-systemd-invoke $*" >> "%s/calls"\n' "$BATS_TEST_TMPDIR" > "$BATS_TEST_TMPDIR/bin/deb-systemd-invoke"
+    chmod +x "$BATS_TEST_TMPDIR/bin/systemctl" "$BATS_TEST_TMPDIR/bin/deb-systemd-invoke"
+    : > "$BATS_TEST_TMPDIR/calls"
+    PATH="$BATS_TEST_TMPDIR/bin:$PATH" KEEL_WEB_SYSTEMD_DIR="$1" \
+        sh "$BATS_TEST_TMPDIR/control/postinst" configure "${2:-}"
+}
+
+@test "postinst on a running system reloads systemd and restarts a running Anubis" {
+    mkdir -p "$BATS_TEST_TMPDIR/systemd"
+    run postinst_run "$BATS_TEST_TMPDIR/systemd" 0.1.0
+    [ "$status" -eq 0 ]
+    [ "$(cat "$BATS_TEST_TMPDIR/calls")" = $'systemctl --system daemon-reload\ndeb-systemd-invoke try-restart anubis@keel.service' ]
+}
+
+@test "postinst in an image build touches no service" {
+    run postinst_run "$BATS_TEST_TMPDIR/no-systemd"
+    [ "$status" -eq 0 ]
+    [ ! -s "$BATS_TEST_TMPDIR/calls" ]
 }
 
 # postrm, the built one, run against a scratch root through DPKG_ROOT
@@ -134,10 +167,33 @@ postrm_root() {
     [ "$(readlink "$PR/etc/nginx/sites-enabled/default-anubis")" = /srv/other ]
 }
 
-@test "it installs the manifest, the site, the hook and their documentation, nothing more" {
+@test "it installs the manifest, the site, the hooks, the drop-in and their documentation, nothing more" {
     run bash -c "dpkg-deb -c '$DEB' | awk '{print \$6}' | grep -v '/\$' | sort"
     [ "$status" -eq 0 ]
-    [ "$output" = "./$SITE"$'\n'"./$HOOK"$'\n./usr/share/doc/keel-web/changelog.gz\n./usr/share/doc/keel-web/copyright\n./usr/share/keel/appliances/web.yaml' ]
+    expected="$(printf '%s\n' "./$SITE" "./$HOOK" "./$DOMAINS" "./$DROPIN" "./$DOMAINS_UNIT" \
+        ./usr/share/doc/keel-web/changelog.gz ./usr/share/doc/keel-web/copyright \
+        ./usr/share/keel/appliances/web.yaml | sort)"
+    [ "$output" = "$expected" ]
+}
+
+# Anubis redirects a solved challenge to any host unless REDIRECT_DOMAINS
+# is set: the drop-in writes it from the machine's names and addresses
+# before each start, and the unit does not start without it
+@test "the drop-in of anubis@keel writes REDIRECT_DOMAINS before each start, as root" {
+    run listed "$DOMAINS"
+    [[ "$output" == "-rwxr-xr-x root/root "* ]]
+    cmp "$PACKAGE_DIR/anubis-redirect-domains" "$BUILD/root/$DOMAINS"
+    # systemd reads an EnvironmentFile before ExecStartPre (measured: the
+    # unit failed with "resources"), so a oneshot unit writes it first
+    run cat "$BUILD/root/$DROPIN"
+    [[ "$output" == *$'[Unit]\nRequires=keel-web-anubis-domains.service\nAfter=keel-web-anubis-domains.service'* ]]
+    [[ "$output" == *$'[Service]\nEnvironmentFile=/run/keel-web/anubis.env'* ]]
+    run cat "$BUILD/root/$DOMAINS_UNIT"
+    [[ "$output" == *$'Type=oneshot\nExecStart=/usr/lib/keel-web/anubis-redirect-domains /run/keel-web/anubis.env'* ]]
+    [[ "$output" != *RemainAfterExit* ]]
+    [[ "$output" != *"[Install]"* ]]
+    run listed "$DROPIN"
+    [[ "$output" == "-rw-r--r-- root/root "* ]]
 }
 
 # the site
@@ -166,9 +222,29 @@ postrm_root() {
     grep -q $'^\tssl_protocols TLSv1.2 TLSv1.3;$' "$PACKAGE_DIR/default-anubis"
 }
 
+# the list of common's conf/turnkey.d/zz-ssl-ciphers (Mozilla's
+# "intermediate"), forward secret only, for TLS 1.2; TLS 1.3's suites are
+# all forward secret
+@test "site: TLS 1.2 ciphers are zz-ssl-ciphers', forward secret only" {
+    local ciphers
+    ciphers="$(grep -oP "^\tssl_ciphers '\K[^']+" "$PACKAGE_DIR/default-anubis")"
+    [ "$ciphers" = "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384:DHE-RSA-CHACHA20-POLY1305" ]
+    local cipher
+    for cipher in ${ciphers//:/ }; do
+        [[ "$cipher" == ECDHE-* || "$cipher" == DHE-* ]]
+    done
+    grep -q $'^\tssl_prefer_server_ciphers off;$' "$PACKAGE_DIR/default-anubis"
+}
+
+@test "site: the HSTS and passthrough follow-ups are written where the next reader looks" {
+    grep -q 'TODO(Keel-Linux/tracker#51, decision 0042 tls.hsts)' "$PACKAGE_DIR/default-anubis"
+    grep -q '# Strict-Transport-Security once' "$PACKAGE_DIR/default-anubis"
+    grep -q 'A tls-passthrough site of 0042 needs the stream front on port 443' "$PACKAGE_DIR/default-anubis"
+}
+
 # HSTS over a self-signed certificate locks visitors out (0042, tls.hsts)
 @test "site: no HSTS while the certificate may be self-signed" {
-    run grep -c -i 'strict-transport-security' "$PACKAGE_DIR/default-anubis"
+    run bash -c "grep -v '^[[:space:]]*#' '$PACKAGE_DIR/default-anubis' | grep -c -i 'strict-transport-security'"
     [ "$output" = 0 ]
 }
 

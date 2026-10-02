@@ -1,0 +1,11 @@
+# keel-web: write REDIRECT_DOMAINS for anubis@keel.service, the machine's
+# names and global addresses, before each start of Anubis (its drop-in
+# keel-web.conf requires this unit). No install section: only Anubis pulls
+# it in.
+[Unit]
+Description=Keel Web: the hosts Anubis may redirect to
+Before=anubis@keel.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/keel-web/anubis-redirect-domains /run/keel-web/anubis.env

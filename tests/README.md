@@ -34,7 +34,7 @@ completes headless from an instance spec, and the machine matches the spec.
 
 Debian packages `bats` (1.11) and `kcov` (43); no root:
 
-    bats tests/anubis-front.bats tests/image-conf.bats tests/boot-test.bats
+    bats tests/anubis-front.bats tests/image-conf.bats tests/boot-test.bats tests/redirect-domains.bats
     bats tests/package.bats
     COVERAGE_THRESHOLD=100 tests/coverage.sh
 

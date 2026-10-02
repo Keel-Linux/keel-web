@@ -12,6 +12,19 @@ keel-web (0.1.1) trixie; urgency=medium
     the certificate or its key is missing.
   * Activate nginx-reload, so an install, upgrade or remove reaches a
     running Nginx: an upgrade from 0.1.0 serves the HTTPS front at once.
+  * TLS 1.2 ciphers are common's zz-ssl-ciphers list (Mozilla
+    intermediate, forward secret only), ssl_prefer_server_ciphers off.
+    The front notes HSTS once ACME has issued a CA's certificate, and the
+    listen lines a tls-passthrough site must take away, as TODOs of
+    Keel-Linux/tracker#51 (the implementation of decision 0042).
+  * Close Anubis's open redirect: without REDIRECT_DOMAINS, pass-challenge
+    redirected a solved challenge to any host. keel-web-anubis-domains,
+    which a drop-in of anubis@keel.service requires, writes it before
+    each start from /usr/lib/keel-web/anubis-redirect-domains: the
+    machine's short name and fqdn and its global addresses, IPv6
+    bracketed; with none the unit does not start. A name or address
+    changed later needs a restart of anubis@keel. postinst reloads
+    systemd and try-restarts a running Anubis. Depends on iproute2.
   * Depends on keel-overlay-coraza (>= 0.1.2): the WAF let Anubis's
     pass-challenge through only by name, never by IP (CRS 931100 read the
     IP in its redir argument), and its audit log names the rule that

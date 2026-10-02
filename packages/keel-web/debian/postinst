@@ -1,0 +1,18 @@
+#!/bin/sh
+# keel-web: have a running systemd read the drop-in of anubis@keel.service
+# (REDIRECT_DOMAINS, /usr/lib/keel-web/anubis-redirect-domains), and
+# restart Anubis when it already runs, so an upgrade closes its open
+# redirect at once. try-restart starts nothing: Anubis stays off in a
+# simple installation. Links nothing: the front is the state hook's. In an
+# image build (no /run/systemd/system) it does nothing.
+# KEEL_WEB_SYSTEMD_DIR exists for tests/package.bats.
+set -e
+
+if [ "$1" = configure ] && [ -d "${KEEL_WEB_SYSTEMD_DIR:-/run/systemd/system}" ]; then
+    systemctl --system daemon-reload >/dev/null || true
+    deb-systemd-invoke try-restart anubis@keel.service || true
+fi
+
+#DEBHELPER#
+
+exit 0

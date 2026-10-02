@@ -18,7 +18,10 @@
 # the confconsole Certificate screen issues one through ACME, at the same
 # paths. So no HSTS here: over a self-signed certificate it locks visitors
 # out (0042, tls.hsts). By name or by IP alike: the default server serves
-# both, as the usage screen shows the IP.
+# both, as the usage screen shows the IP. Anubis redirects a solved
+# challenge only to the machine's own names and addresses
+# (REDIRECT_DOMAINS, written by /usr/lib/keel-web/anubis-redirect-domains
+# before anubis@keel starts).
 #
 # Until keel renders sites of its own (0042), this is the one site Keel
 # Web serves: the content of Debian's default site, /var/www/html.
@@ -41,7 +44,20 @@ server {
 
 	ssl_certificate /usr/local/share/ca-certificates/cert.crt;
 	ssl_certificate_key /etc/ssl/private/cert.key;
+	# As common's conf/turnkey.d/zz-ssl-ciphers sets them for every web
+	# server of an appliance (Mozilla's "intermediate"): TLS 1.2 and 1.3,
+	# and for 1.2 forward secret ciphers only.
 	ssl_protocols TLSv1.2 TLSv1.3;
+	ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384:DHE-RSA-CHACHA20-POLY1305';
+	ssl_prefer_server_ciphers off;
+
+	# TODO(Keel-Linux/tracker#51, decision 0042 tls.hsts): add
+	# Strict-Transport-Security once the confconsole Certificate screen has
+	# issued a CA's certificate through ACME; never over the self-signed one.
+	#
+	# A tls-passthrough site of 0042 needs the stream front on port 443:
+	# then these two listen lines must go, and this server listens behind
+	# it on unix:/run/nginx/keel-https.sock (Keel-Linux/tracker#51).
 
 	location / {
 		include /etc/nginx/snippets/keel-anubis.conf;

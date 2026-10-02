@@ -33,6 +33,12 @@ and ``/etc/ssl/private/cert.key``, the ``default`` certificate of decision
 screen issues one through ACME, and port 80 answers 301 to the same URL on
 HTTPS. A browser warns about the self-signed certificate once; there is no
 HSTS until the certificate is a CA's. The site answers by name and by IP.
+Anubis redirects a solved challenge only to the machine's own short name,
+fqdn and global addresses (``REDIRECT_DOMAINS``, written by
+``keel-web-anubis-domains.service`` before each start of
+``anubis@keel``): another name pointed at the machine gets Anubis's error
+page until keel renders the sites of decision 0042 (tracker#51), and a
+changed name or address needs ``systemctl restart anubis@keel``.
 In a simple installation, with no Anubis, Debian's site serves port 80, so
 the usage screen lists ``http://<address>``, right in every mode.
 
