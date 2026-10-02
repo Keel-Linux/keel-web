@@ -15,6 +15,8 @@
 #   not linked; Debian's default site enabled. keel spec apply turns them
 #   on where the instance spec says so.
 # - A page for the default site, /var/www/html/index.html.
+# - A usage screen that lists the site (/etc/confconsole/services.txt of
+#   this recipe's overlay, over Core's).
 #
 # KEEL_CONF_ROOT is the tree to work on, empty (the chroot's /) in a build;
 # tests/image-conf.bats sets it to a scratch tree.
@@ -57,6 +59,12 @@ fi
 # overlay of this recipe puts Keel Web's there
 if [ ! -f "$root/var/www/html/index.html" ]; then
     fatal "/var/www/html/index.html, the page of the default site, is not in the image"
+fi
+
+# Core's recipe ships a usage screen of Webmin and SSH only; the overlay of
+# this recipe replaces it with one that lists the site first
+if ! grep -qE '^Web: +http://' "$root/etc/confconsole/services.txt" 2>/dev/null; then
+    fatal "/etc/confconsole/services.txt does not list the site: the usage screen would show Webmin and SSH only"
 fi
 
 exit "$failed"

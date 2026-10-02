@@ -47,9 +47,14 @@ listed() {
 @test "it depends on Core, the three Web overlays and the keel that runs state hooks" {
     run dpkg-deb -f "$DEB" Depends
     [ "$status" -eq 0 ]
-    # keel-overlay-coraza 0.1.1 declares its state hook and keeps gzip
-    # answers whole (Keel-Linux/libnginx-mod-http-coraza#2)
-    [ "$output" = "keel (>= 0.15.0), keel-core, keel-overlay-anubis, keel-overlay-coraza (>= 0.1.1), keel-overlay-nginx" ]
+    # anubis 1.27.0-0+keel2 serves the challenge to a client without gzip
+    # (keel-web#2), and keel3 redirects a solved challenge only to the
+    # request's own origin while REDIRECT_DOMAINS is empty, as keel-web
+    # leaves it (Keel-Linux/anubis#3); keel-overlay-coraza 0.1.2 lets
+    # Anubis's pass-challenge through when the site is opened by IP and
+    # names the rule it blocks with in its audit log (0.1.1: its state
+    # hook, gzip answers whole)
+    [ "$output" = "anubis (>= 1.27.0-0+keel3), keel (>= 0.15.0), keel-core, keel-overlay-anubis, keel-overlay-coraza (>= 0.1.2), keel-overlay-nginx" ]
 }
 
 @test "the manifest is installed as /usr/share/keel/appliances/web.yaml, 0644 root" {
@@ -70,6 +75,14 @@ listed() {
     cmp "$PACKAGE_DIR/anubis-front" "$BUILD/root/$HOOK"
     run listed "$HOOK"
     [[ "$output" == "-rwxr-xr-x root/root "* ]]
+}
+
+# An upgrade that changes the front (0.1.1 moved it to HTTPS) reaches a
+# running Nginx: the same trigger the libnginx-mod-* packages activate
+@test "an install or upgrade has a running Nginx reload, through nginx's trigger" {
+    run dpkg-deb -I "$DEB" triggers
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"activate-noawait nginx-reload"* ]]
 }
 
 @test "nothing links the front at installation: no file in sites-enabled, no postinst" {
@@ -124,23 +137,76 @@ postrm_root() {
     [ "$(readlink "$PR/etc/nginx/sites-enabled/default-anubis")" = /srv/other ]
 }
 
+# No REDIRECT_DOMAINS: with it empty, anubis 1.27.0-0+keel3 redirects a
+# solved challenge only to the request's own origin, so every name and
+# address the site is reached by works (a list fixed at start broke a new
+# DNS name, a 0042 site or a public IP behind NAT)
 @test "it installs the manifest, the site, the hook and their documentation, nothing more" {
     run bash -c "dpkg-deb -c '$DEB' | awk '{print \$6}' | grep -v '/\$' | sort"
     [ "$status" -eq 0 ]
-    [ "$output" = "./$SITE"$'\n'"./$HOOK"$'\n./usr/share/doc/keel-web/changelog.gz\n./usr/share/doc/keel-web/copyright\n./usr/share/keel/appliances/web.yaml' ]
+    expected="$(printf '%s\n' "./$SITE" "./$HOOK" \
+        ./usr/share/doc/keel-web/changelog.gz ./usr/share/doc/keel-web/copyright \
+        ./usr/share/keel/appliances/web.yaml | sort)"
+    [ "$output" = "$expected" ]
 }
 
 # the site
 
-@test "site: the front takes the default server on port 80, IPv6 first" {
-    run grep -E '^\s*listen ' "$PACKAGE_DIR/default-anubis"
+# Anubis's cookies are Secure, so over plain HTTP no browser passed the
+# challenge (the maintainer's screenshot 114): the front serves HTTPS and
+# port 80 only redirects (handbook decision 0042, redirect_http)
+@test "site: the front takes the default server on ports 80 and 443, IPv6 first, TLS on 443" {
+    run grep -E '^\s*listen [^u]' "$PACKAGE_DIR/default-anubis"
     [ "${lines[0]}" = $'\tlisten [::]:80 default_server;' ]
     [ "${lines[1]}" = $'\tlisten 80 default_server;' ]
+    [ "${lines[2]}" = $'\tlisten [::]:443 ssl default_server;' ]
+    [ "${lines[3]}" = $'\tlisten 443 ssl default_server;' ]
+    [ "${#lines[@]}" -eq 4 ]
 }
 
-@test "site: every request of the front goes through the overlay's Anubis snippet" {
+@test "site: port 80 answers every request with 301 to the same URL on HTTPS" {
+    run awk '/listen 80 default_server/,/^}/' "$PACKAGE_DIR/default-anubis"
+    [[ "$output" == *$'\treturn 301 https://$host$request_uri;'* ]]
+    [[ "$output" != *keel-anubis.conf* ]]
+}
+
+@test "site: 443 uses the machine's certificate, the default of decision 0042" {
+    grep -q $'^\tssl_certificate /usr/local/share/ca-certificates/cert.crt;$' "$PACKAGE_DIR/default-anubis"
+    grep -q $'^\tssl_certificate_key /etc/ssl/private/cert.key;$' "$PACKAGE_DIR/default-anubis"
+    grep -q $'^\tssl_protocols TLSv1.2 TLSv1.3;$' "$PACKAGE_DIR/default-anubis"
+}
+
+# the list of common's conf/turnkey.d/zz-ssl-ciphers (Mozilla's
+# "intermediate"), forward secret only, for TLS 1.2; TLS 1.3's suites are
+# all forward secret
+@test "site: TLS 1.2 ciphers are zz-ssl-ciphers', forward secret only" {
+    local ciphers
+    ciphers="$(grep -oP "^\tssl_ciphers '\K[^']+" "$PACKAGE_DIR/default-anubis")"
+    [ "$ciphers" = "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384:DHE-RSA-CHACHA20-POLY1305" ]
+    local cipher
+    for cipher in ${ciphers//:/ }; do
+        [[ "$cipher" == ECDHE-* || "$cipher" == DHE-* ]]
+    done
+    grep -q $'^\tssl_prefer_server_ciphers off;$' "$PACKAGE_DIR/default-anubis"
+}
+
+@test "site: the HSTS and passthrough follow-ups are written where the next reader looks" {
+    grep -q 'TODO(Keel-Linux/tracker#51, decision 0042 tls.hsts)' "$PACKAGE_DIR/default-anubis"
+    grep -q '# Strict-Transport-Security once' "$PACKAGE_DIR/default-anubis"
+    grep -q 'A tls-passthrough site of 0042 needs the stream front on port 443' "$PACKAGE_DIR/default-anubis"
+}
+
+# HSTS over a self-signed certificate locks visitors out (0042, tls.hsts)
+@test "site: no HSTS while the certificate may be self-signed" {
+    run bash -c "grep -v '^[[:space:]]*#' '$PACKAGE_DIR/default-anubis' | grep -c -i 'strict-transport-security'"
+    [ "$output" = 0 ]
+}
+
+@test "site: every request on 443 goes through the overlay's Anubis snippet" {
     run grep -c 'include /etc/nginx/snippets/keel-anubis.conf;' "$PACKAGE_DIR/default-anubis"
     [ "$output" = 1 ]
+    run awk '/listen 443 ssl default_server/,/^}/' "$PACKAGE_DIR/default-anubis"
+    [[ "$output" == *'include /etc/nginx/snippets/keel-anubis.conf;'* ]]
 }
 
 @test "site: what Anubis allows is served on keel-app.sock, trusting X-Real-IP from unix: only" {

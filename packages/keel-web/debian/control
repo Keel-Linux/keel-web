@@ -13,10 +13,11 @@ Vcs-Browser: https://github.com/Keel-Linux/keel-web/tree/master/packages/keel-we
 Package: keel-web
 Architecture: all
 Depends:
+ anubis (>= 1.27.0-0+keel3),
  keel (>= 0.15.0),
  keel-core,
  keel-overlay-anubis,
- keel-overlay-coraza (>= 0.1.1),
+ keel-overlay-coraza (>= 0.1.2),
  keel-overlay-nginx,
  ${misc:Depends},
 Description: Keel Web, the base of every Keel web appliance
@@ -26,7 +27,8 @@ Description: Keel Web, the base of every Keel web appliance
  and the three of them in the cloud modes.
  .
  It also ships the Anubis front of the default site,
- /etc/nginx/sites-available/default-anubis, and the state hook that keel
+ /etc/nginx/sites-available/default-anubis (HTTPS with the machine's
+ certificate, port 80 redirecting to it), and the state hook that keel
  spec apply runs when the anubis overlay is turned on or off, which puts
  that front in place of Debian's default site and back. Installing it
  enables nothing.

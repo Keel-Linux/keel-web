@@ -1,0 +1,5 @@
+# A running Nginx reloads when this package is installed, upgraded or
+# removed, so a changed Anubis front (sites-available/default-anubis, a
+# conffile) is served at once where the state hook linked it: the trigger
+# trixie's libnginx-mod-* packages and keel-overlay-coraza activate.
+activate-noawait nginx-reload

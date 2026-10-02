@@ -43,6 +43,10 @@ STUB
     chmod +x "$T/bin/nginx" "$T/bin/dpkg-query"
     export STUB_DIR="$T"
     PATH="$T/bin:$PATH"
+    # the machine's certificate, which keel-host-keys makes at first boot
+    export KEEL_WEB_CERT="$T/cert.crt" KEEL_WEB_KEY="$T/cert.key"
+    echo "-----BEGIN CERTIFICATE-----" > "$KEEL_WEB_CERT"
+    echo "-----BEGIN PRIVATE KEY-----" > "$KEEL_WEB_KEY"
 }
 
 teardown() {
@@ -110,6 +114,46 @@ not_recorded() {
     [ ! -L "$N/sites-enabled/default-anubis" ]
     not_recorded
     [ ! -s "$CALLS" ]
+}
+
+# The front serves HTTPS with the machine's certificate: Anubis's cookies
+# are Secure, so over plain HTTP no browser passes the challenge
+# (screenshot 114). Without the certificate nginx -t would refuse the
+# front anyway; the hook says why before it changes anything.
+@test "enabled refuses while the machine's certificate is missing, and changes nothing" {
+    rm "$KEEL_WEB_CERT"
+    run bash "$HOOK" enabled
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"$KEEL_WEB_CERT"*"the machine's certificate"*"not there"* ]]
+    debian_linked
+    [ ! -L "$N/sites-enabled/default-anubis" ]
+    not_recorded
+    [ ! -s "$CALLS" ]
+}
+
+@test "enabled refuses while the certificate's key is missing, and changes nothing" {
+    rm "$KEEL_WEB_KEY"
+    run bash "$HOOK" enabled
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"$KEEL_WEB_KEY"*"not there"* ]]
+    debian_linked
+    [ ! -L "$N/sites-enabled/default-anubis" ]
+    [ ! -s "$CALLS" ]
+}
+
+@test "an empty certificate counts as missing" {
+    : > "$KEEL_WEB_CERT"
+    run bash "$HOOK" enabled
+    [ "$status" -eq 1 ]
+    debian_linked
+}
+
+@test "disabled does not need the certificate" {
+    bash "$HOOK" enabled
+    rm "$KEEL_WEB_CERT" "$KEEL_WEB_KEY"
+    run bash "$HOOK" disabled
+    [ "$status" -eq 0 ]
+    debian_linked
 }
 
 @test "enabled refuses when nginx-common's checksum cannot be read" {

@@ -8,8 +8,11 @@
 #
 # enabled: replaces the link sites-enabled/default (Debian's default site)
 # with sites-enabled/default-anubis, the same content behind Anubis: its
-# server takes the default server on port 80 and sends every request
-# through /etc/nginx/snippets/keel-anubis.conf of keel-overlay-anubis, and
+# servers take the default server on port 80, which redirects to HTTPS,
+# and on port 443, which serves HTTPS with the machine's certificate
+# (refused, changing nothing, while it is not there) and sends every
+# request through /etc/nginx/snippets/keel-anubis.conf of
+# keel-overlay-anubis, and
 # what Anubis allows comes back on unix:/run/nginx/keel-app.sock, where
 # /var/www/html is served. The front only ever replaces Debian's link, and
 # only while it points to Debian's file and that file is still the one
@@ -44,6 +47,9 @@ DEBIAN_LINK="$NGINX_DIR/sites-enabled/default"
 # the conffile as dpkg names it, whatever NGINX_DIR is
 DEBIAN_CONFFILE=/etc/nginx/sites-available/default
 RECORD="$STATE_DIR/debian-default-unlinked"
+# the machine's certificate, which the front serves HTTPS with
+CERT="${KEEL_WEB_CERT:-/usr/local/share/ca-certificates/cert.crt}"
+KEY="${KEEL_WEB_KEY:-/etc/ssl/private/cert.key}"
 
 say() {
     echo "keel-web: $*"
@@ -84,6 +90,16 @@ may_unlink_debian() {
     pristine || fail "$DEBIAN_SITE is edited (or nginx-common's checksum cannot be read): it is the operator's, left alone, and Anubis is not put in front of it"
 }
 
+# The front serves HTTPS with the machine's certificate (keel-host-keys
+# makes it at the first boot); without it nginx -t would refuse the front.
+# Said here, before anything changes.
+has_certificate() {
+    local file
+    for file in "$CERT" "$KEY"; do
+        [ -s "$file" ] || fail "$file, the machine's certificate or its key, is not there: the front serves HTTPS with it, so Anubis is not put in front of the default site (keel-host-keys makes it at the first boot)"
+    done
+}
+
 enable() {
     if [ "$(readlink "$FRONT_LINK" || true)" = "$FRONT_SITE" ]; then
         say "unchanged (enabled)"
@@ -98,6 +114,7 @@ enable() {
         return 0
     fi
     may_unlink_debian
+    has_certificate
     # recorded before the link goes, so that a failed write never loses it
     if ! { mkdir -p "$STATE_DIR" && : > "$RECORD"; } 2>/dev/null; then
         fail "cannot record the change in $RECORD; nothing changed"

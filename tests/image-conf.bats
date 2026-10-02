@@ -18,6 +18,33 @@ setup() {
     echo "BIND=[::1]:8923" > "$ROOT/etc/anubis/keel.env"
     mkdir -p "$ROOT/var/www/html"
     echo "<title>Keel Web</title>" > "$ROOT/var/www/html/index.html"
+    mkdir -p "$ROOT/etc/confconsole"
+    cp "$BATS_TEST_DIRNAME/../overlay/etc/confconsole/services.txt" "$ROOT/etc/confconsole/services.txt"
+}
+
+# the usage screen of the recipe's overlay
+
+USAGE="$BATS_TEST_DIRNAME/../overlay/etc/confconsole/services.txt"
+
+@test "usage: the site comes first, by IPv6 and by IPv4, then Webmin and SSH" {
+    run cat "$USAGE"
+    [ "${lines[0]}" = 'Web:        http://[$ipaddr6]' ]
+    [ "${lines[1]}" = 'Webmin:     https://[$ipaddr6]:12321' ]
+    [ "${lines[2]}" = 'SSH/SFTP:   root@$ipaddr6 (port 22)' ]
+    [ "${lines[3]}" = 'Web:        http://$ipaddr' ]
+    [ "${lines[4]}" = 'Webmin:     https://$ipaddr:12321' ]
+    [ "${lines[5]}" = 'SSH/SFTP:   root@$ipaddr (port 22)' ]
+    [ "${#lines[@]}" -eq 6 ]
+}
+
+# Port 80 serves the site in a simple installation and answers 301 to
+# HTTPS behind Anubis, so the one URL is right in every mode; no web
+# shell, which Keel dropped from Core (Keel-Linux/handbook#31)
+@test "usage: every line fits the screen and names no web shell" {
+    run awk 'length > 50' "$USAGE"
+    [ -z "$output" ]
+    run grep -c -i 'shell\|12320' "$USAGE"
+    [ "$output" = 0 ]
 }
 
 teardown() {
@@ -99,6 +126,24 @@ teardown() {
     run bash "$CONF"
     [ "$status" -eq 1 ]
     [[ "$output" == *"FATAL: /var/www/html/index.html, the page of the default site, is not in the image"* ]]
+}
+
+# Core's recipe ships a usage screen of Webmin and SSH only; the web layer
+# must replace it, or the console never shows the site (screenshot 024)
+
+@test "a usage screen that does not list the site fails the build" {
+    printf '%s\n' 'Webmin:     https://[$ipaddr6]:12321' 'SSH/SFTP:   root@$ipaddr6 (port 22)' \
+        > "$ROOT/etc/confconsole/services.txt"
+    run bash "$CONF"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"FATAL: /etc/confconsole/services.txt does not list the site"* ]]
+}
+
+@test "no usage screen at all fails the build too" {
+    rm "$ROOT/etc/confconsole/services.txt"
+    run bash "$CONF"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"FATAL: /etc/confconsole/services.txt does not list the site"* ]]
 }
 
 @test "every problem is reported, not only the first" {
