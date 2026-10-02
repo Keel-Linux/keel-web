@@ -25,6 +25,17 @@ hook of ``keel-web`` puts ``/etc/nginx/sites-available/default-anubis``
 (the same content, behind Anubis) in its place, and puts Debian's back
 when it is turned off.
 
+Behind Anubis the site is HTTPS only: Anubis sets its cookies ``Secure``,
+so over plain HTTP no browser could pass its challenge. Port 443 serves
+with the machine's certificate (``/usr/local/share/ca-certificates/cert.crt``
+and ``/etc/ssl/private/cert.key``, the ``default`` certificate of decision
+0042), self-signed at the first boot until the confconsole Certificate
+screen issues one through ACME, and port 80 answers 301 to the same URL on
+HTTPS. A browser warns about the self-signed certificate once; there is no
+HSTS until the certificate is a CA's. The site answers by name and by IP.
+In a simple installation, with no Anubis, Debian's site serves port 80, so
+the usage screen lists ``http://<address>``, right in every mode.
+
 The project's contributions to this repository are licensed
 GPL-3.0-or-later (``LICENSE``; project decision 0007). The organization
 guidelines that every Keel repository follows are at

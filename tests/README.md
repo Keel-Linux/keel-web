@@ -66,11 +66,25 @@ keel enables and starts `anubis@keel.service`, runs the state hooks
 (Coraza's, which links the module and checks its probe, and keel-web's,
 which puts the default site behind Anubis), and Monit's file gains
 `crowdsec`, `firewall-bouncer`, `anubis` and `waf-blocks`. From outside
-the container:
+the container (`-k`: the machine's certificate is self-signed):
 
-    curl -s -o /dev/null -w '%{http_code}' 'http://[<address>]/?q=<script>alert(1)</script>'   # 403
-    curl -s -A 'Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0' \
-        http://[<address>]/              # Anubis's challenge page
+    curl -s -o /dev/null -w '%{http_code} %{redirect_url}' http://[<address>]/x   # 301 https://[<address>]/x
+    curl -sk -o /dev/null -w '%{http_code}' 'https://[<address>]/?q=<script>alert(1)</script>'   # 403
+    grep -F '[id \"941100\"]' /var/log/coraza/audit.log   # the rule that blocked, on the container
+    curl -sk -A 'Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0' \
+        https://[<address>]/             # Anubis's challenge page
+
+and without gzip, the challenge every time, never 500 (keel-web#2):
+
+    for i in $(seq 200); do curl -sk -o /dev/null -w '%{http_code}\n' \
+        -A 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)' \
+        https://[<address>]/; done | sort | uniq -c                  # 200 200
+
+A real browser (chromium with playwright-core, not headless Chrome's user
+agent, which the policy denies) passes the challenge and gets the page,
+by name and by IP, IPv6 and IPv4: by IP, Anubis's pass-challenge carries
+`redir=https://<IP>/`, which CRS 931100 blocked until
+keel-overlay-coraza 0.1.2.
 
 A verified crawler is Googlebot's user agent from one of Google's
 published ranges. A test cannot send from those addresses, so it is
@@ -79,10 +93,10 @@ simulated behind a trusted proxy, the `header` case of decision 0042's
 (`set_real_ip_from`) and takes the client from `X-Forwarded-For`. Nginx
 then hands Anubis that address in `X-Real-IP`, as it would a real one:
 
-    curl -s -A 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)' \
-        -H 'X-Forwarded-For: 2001:4860:4801:10::1' http://[<address>]/   # the page
-    curl -s -A 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)' \
-        http://[<address>]/                                               # challenged
+    curl -sk -A 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)' \
+        -H 'X-Forwarded-For: 2001:4860:4801:10::1' https://[<address>]/  # the page
+    curl -sk -A 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)' \
+        https://[<address>]/                                              # challenged
 
 A second `keel spec apply --system` changes nothing, and turning the two
 overlays off again puts Debian's default site back and unloads Coraza.

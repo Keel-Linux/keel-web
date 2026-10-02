@@ -11,6 +11,15 @@
 # in X-Real-IP; the socket trusts that header from unix: only, so nothing
 # outside the machine can set it (0042, "Real client IP").
 #
+# HTTPS only, port 80 redirecting (0042, redirect_http): Anubis sets its
+# cookies Secure, so over plain HTTP a browser never sends them back and
+# never passes the challenge. The certificate is the machine's, the
+# `default` of 0042: self-signed by keel-host-keys at the first boot until
+# the confconsole Certificate screen issues one through ACME, at the same
+# paths. So no HSTS here: over a self-signed certificate it locks visitors
+# out (0042, tls.hsts). By name or by IP alike: the default server serves
+# both, as the usage screen shows the IP.
+#
 # Until keel renders sites of its own (0042), this is the one site Keel
 # Web serves: the content of Debian's default site, /var/www/html.
 
@@ -18,6 +27,21 @@ server {
 	listen [::]:80 default_server;
 	listen 80 default_server;
 	server_name _;
+
+	location / {
+		return 301 https://$host$request_uri;
+	}
+}
+
+server {
+	listen [::]:443 ssl default_server;
+	listen 443 ssl default_server;
+	http2 on;
+	server_name _;
+
+	ssl_certificate /usr/local/share/ca-certificates/cert.crt;
+	ssl_certificate_key /etc/ssl/private/cert.key;
+	ssl_protocols TLSv1.2 TLSv1.3;
 
 	location / {
 		include /etc/nginx/snippets/keel-anubis.conf;

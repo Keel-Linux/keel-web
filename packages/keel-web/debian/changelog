@@ -1,3 +1,27 @@
+keel-web (0.1.1) trixie; urgency=medium
+
+  * The Anubis front serves HTTPS. Anubis sets its cookies Secure, and
+    the front served plain HTTP only, so no browser passed the challenge
+    by name. Port 443 is the default server with TLS 1.2 and 1.3 and the
+    machine's certificate (/usr/local/share/ca-certificates/cert.crt and
+    /etc/ssl/private/cert.key, the default of decision 0042: self-signed
+    by keel-host-keys at the first boot until the confconsole Certificate
+    screen issues one through ACME), HTTP/2 on; port 80 answers 301 to
+    the same URL on HTTPS. No HSTS, which over a self-signed certificate
+    locks visitors out. The state hook refuses, changing nothing, while
+    the certificate or its key is missing.
+  * Activate nginx-reload, so an install, upgrade or remove reaches a
+    running Nginx: an upgrade from 0.1.0 serves the HTTPS front at once.
+  * Depends on keel-overlay-coraza (>= 0.1.2): the WAF let Anubis's
+    pass-challenge through only by name, never by IP (CRS 931100 read the
+    IP in its redir argument), and its audit log names the rule that
+    blocked.
+  * Depends on anubis (>= 1.27.0-0+keel2), which serves the challenge to
+    a client that does not accept gzip instead of answering 500 to one
+    such request in 64 at random (closes #2).
+
+ -- Marcos Mendez <mendez.foto@gmail.com>  Fri, 02 Oct 2026 04:00:00 +0000
+
 keel-web (0.1.0) trixie; urgency=medium
 
   * First release (handbook decision 0041, first implementation, step 7).

@@ -1,3 +1,21 @@
+keel-web-19.0 (2) keel; urgency=low
+
+  * The usage screen lists the site. Core's recipe ships a
+    /etc/confconsole/services.txt of Webmin and SSH only, and the web
+    layer kept it, so the console never showed the site. The overlay now
+    ships one that puts "Web: http://<address>" first, IPv6 and IPv4:
+    port 80 serves the site in a simple installation and redirects to
+    HTTPS behind Anubis, so the one URL is right in every mode.
+    conf.d/main fails the build when the usage screen does not list it.
+  * keel-web 0.1.1: the Anubis front serves HTTPS with the machine's
+    certificate and port 80 redirects to it, so browsers pass Anubis's
+    challenge (its cookies are Secure); it needs keel-overlay-coraza
+    0.1.2, which lets the challenge pass by IP and names the rule that
+    blocked in its audit log, and anubis 1.27.0-0+keel2, which serves the
+    challenge to clients that do not accept gzip (closes #2).
+
+ -- Marcos Méndez <mendez.foto@gmail.com>  Fri, 02 Oct 2026 04:00:00 +0000
+
 keel-web-19.0 (1) keel; urgency=low
 
   * First release of Keel Web (handbook decisions 0030 and 0041, step 7
