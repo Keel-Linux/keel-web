@@ -20,8 +20,6 @@ An appliance recipe and the package it installs, written by the project
 | `packages/keel-web/manifest.yaml` | the appliance manifest of Keel Web, the format's worked example byte for byte | `tests/package.bats`, and `keel manifest validate` on the image |
 | `packages/keel-web/default-anubis` | Debian's default site behind Anubis, HTTPS with port 80 redirecting | `tests/package.bats`, and the image run |
 | `packages/keel-web/anubis-front` | the state hook keel runs when the anubis overlay is turned on or off | 100 percent, see below |
-| `packages/keel-web/anubis-redirect-domains` | writes Anubis's REDIRECT_DOMAINS, the machine's names and addresses, before each start | 100 percent, see below |
-| `packages/keel-web/anubis-keel-web.conf`, `keel-web-anubis-domains.service`, `debian/postinst` | the drop-in and the unit that run it, and the reload after install | `tests/package.bats`, and the image run |
 | `packages/keel-web/debian/postrm` | on purge, the front's link goes and Debian's default site is linked again | `tests/package.bats`, run against a scratch root through `DPKG_ROOT` |
 
 Every other package, hook and conf script of the image comes from `common`,
@@ -45,9 +43,8 @@ on the built image (`tests/README.md`, "The package on a built image").
 | --- | --- | --- |
 | `tests/lib/boot-test-lib.sh` | 100 percent (109 of 109 lines, 30 bats tests, kcov 43) | `COVERAGE_THRESHOLD=100 tests/coverage.sh` |
 | `packages/keel-web/anubis-front` | 100 percent (84 of 84 lines, 28 bats tests, kcov 43) | the same |
-| `packages/keel-web/anubis-redirect-domains` | 100 percent (25 of 25 lines, 7 bats tests, kcov 43), `hostname` and `ip` stubbed | the same |
 | `conf.d/main` | 100 percent (20 of 20 lines, 15 bats tests, two of them on the overlay's usage screen, kcov 43), run against a scratch tree through `KEEL_CONF_ROOT` | the same |
-| `packages/keel-web` | built with `dpkg-buildpackage` and linted clean with lintian on trixie; its fields, files, trigger, units, postinst, postrm, site and manifest read back by 30 bats tests | `tests/package.bats`, the check `packages / build` |
+| `packages/keel-web` | built with `dpkg-buildpackage` and linted clean with lintian on trixie; its fields, files, trigger, postrm, site and manifest read back by 27 bats tests | `tests/package.bats`, the check `packages / build` |
 | The image | built in isolation on 2026-10-01, core then web, from the packages of this branch and of keel#63; booted in LXC in a simple installation and moved to cloud simple through the spec | `tests/README.md`, "The package on a built image" |
 
 Baseline for the threshold in `.github/workflows/tests.yml`: 100, the

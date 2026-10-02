@@ -13,8 +13,7 @@ Vcs-Browser: https://github.com/Keel-Linux/keel-web/tree/master/packages/keel-we
 Package: keel-web
 Architecture: all
 Depends:
- anubis (>= 1.27.0-0+keel2),
- iproute2,
+ anubis (>= 1.27.0-0+keel3),
  keel (>= 0.15.0),
  keel-core,
  keel-overlay-anubis,

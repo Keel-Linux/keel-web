@@ -11,8 +11,9 @@ keel-web-19.0 (2) keel; urgency=low
     certificate and port 80 redirects to it, so browsers pass Anubis's
     challenge (its cookies are Secure); it needs keel-overlay-coraza
     0.1.2, which lets the challenge pass by IP and names the rule that
-    blocked in its audit log, and anubis 1.27.0-0+keel2, which serves the
-    challenge to clients that do not accept gzip (closes #2).
+    blocked in its audit log, and anubis 1.27.0-0+keel3, which serves the
+    challenge to clients that do not accept gzip (closes #2) and
+    redirects a solved challenge only to the request's own origin.
 
  -- Marcos Méndez <mendez.foto@gmail.com>  Fri, 02 Oct 2026 04:00:00 +0000
 

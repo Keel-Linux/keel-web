@@ -21,7 +21,6 @@ threshold="${COVERAGE_THRESHOLD:-95}"
 targets=(
     "tests/lib/boot-test-lib.sh:tests/boot-test.bats"
     "packages/keel-web/anubis-front:tests/anubis-front.bats"
-    "packages/keel-web/anubis-redirect-domains:tests/redirect-domains.bats"
     "conf.d/main:tests/image-conf.bats"
 )
 

@@ -19,9 +19,9 @@
 # paths. So no HSTS here: over a self-signed certificate it locks visitors
 # out (0042, tls.hsts). By name or by IP alike: the default server serves
 # both, as the usage screen shows the IP. Anubis redirects a solved
-# challenge only to the machine's own names and addresses
-# (REDIRECT_DOMAINS, written by /usr/lib/keel-web/anubis-redirect-domains
-# before anubis@keel starts).
+# challenge only to the origin the request came to (anubis
+# 1.27.0-0+keel3, REDIRECT_DOMAINS left empty), so any name the site is
+# reached by works and no other host can be reached through it.
 #
 # Until keel renders sites of its own (0042), this is the one site Keel
 # Web serves: the content of Debian's default site, /var/www/html.

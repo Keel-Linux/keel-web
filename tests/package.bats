@@ -9,9 +9,6 @@ bats_require_minimum_version 1.5.0
 PACKAGE_DIR="$BATS_TEST_DIRNAME/../packages/keel-web"
 HOOK=usr/lib/keel/overlays/anubis/state.d/50keel-web
 SITE=etc/nginx/sites-available/default-anubis
-DOMAINS=usr/lib/keel-web/anubis-redirect-domains
-DROPIN=usr/lib/systemd/system/anubis@keel.service.d/keel-web.conf
-DOMAINS_UNIT=usr/lib/systemd/system/keel-web-anubis-domains.service
 
 setup_file() {
     BUILD=$(mktemp -d)
@@ -51,11 +48,13 @@ listed() {
     run dpkg-deb -f "$DEB" Depends
     [ "$status" -eq 0 ]
     # anubis 1.27.0-0+keel2 serves the challenge to a client without gzip
-    # (keel-web#2); keel-overlay-coraza 0.1.2 lets Anubis's pass-challenge
-    # through when the site is opened by IP and names the rule it blocks
-    # with in its audit log (0.1.1: its state hook, gzip answers whole)
-    # iproute2: anubis-redirect-domains reads the addresses with ip
-    [ "$output" = "anubis (>= 1.27.0-0+keel2), iproute2, keel (>= 0.15.0), keel-core, keel-overlay-anubis, keel-overlay-coraza (>= 0.1.2), keel-overlay-nginx" ]
+    # (keel-web#2), and keel3 redirects a solved challenge only to the
+    # request's own origin while REDIRECT_DOMAINS is empty, as keel-web
+    # leaves it (Keel-Linux/anubis#3); keel-overlay-coraza 0.1.2 lets
+    # Anubis's pass-challenge through when the site is opened by IP and
+    # names the rule it blocks with in its audit log (0.1.1: its state
+    # hook, gzip answers whole)
+    [ "$output" = "anubis (>= 1.27.0-0+keel3), keel (>= 0.15.0), keel-core, keel-overlay-anubis, keel-overlay-coraza (>= 0.1.2), keel-overlay-nginx" ]
 }
 
 @test "the manifest is installed as /usr/share/keel/appliances/web.yaml, 0644 root" {
@@ -86,39 +85,10 @@ listed() {
     [[ "$output" == *"activate-noawait nginx-reload"* ]]
 }
 
-@test "nothing links the front at installation: no file in sites-enabled, a postinst that links nothing" {
+@test "nothing links the front at installation: no file in sites-enabled, no postinst" {
     [ ! -e "$BUILD/root/etc/nginx/sites-enabled" ]
     run dpkg-deb -I "$DEB" postinst
-    [ "$status" -eq 0 ]
-    [[ "$output" != *"ln "* ]]
-    [[ "$output" != *sites-enabled* ]]
-}
-
-# the postinst, run against stubs: systemd reads the drop-in, and a
-# running Anubis restarts with REDIRECT_DOMAINS; an image build (no
-# /run/systemd/system) does neither
-postinst_run() {
-    dpkg-deb -e "$DEB" "$BATS_TEST_TMPDIR/control"
-    mkdir -p "$BATS_TEST_TMPDIR/bin"
-    printf '#!/bin/sh\necho "systemctl $*" >> "%s/calls"\n' "$BATS_TEST_TMPDIR" > "$BATS_TEST_TMPDIR/bin/systemctl"
-    printf '#!/bin/sh\necho "deb-systemd-invoke $*" >> "%s/calls"\n' "$BATS_TEST_TMPDIR" > "$BATS_TEST_TMPDIR/bin/deb-systemd-invoke"
-    chmod +x "$BATS_TEST_TMPDIR/bin/systemctl" "$BATS_TEST_TMPDIR/bin/deb-systemd-invoke"
-    : > "$BATS_TEST_TMPDIR/calls"
-    PATH="$BATS_TEST_TMPDIR/bin:$PATH" KEEL_WEB_SYSTEMD_DIR="$1" \
-        sh "$BATS_TEST_TMPDIR/control/postinst" configure "${2:-}"
-}
-
-@test "postinst on a running system reloads systemd and restarts a running Anubis" {
-    mkdir -p "$BATS_TEST_TMPDIR/systemd"
-    run postinst_run "$BATS_TEST_TMPDIR/systemd" 0.1.0
-    [ "$status" -eq 0 ]
-    [ "$(cat "$BATS_TEST_TMPDIR/calls")" = $'systemctl --system daemon-reload\ndeb-systemd-invoke try-restart anubis@keel.service' ]
-}
-
-@test "postinst in an image build touches no service" {
-    run postinst_run "$BATS_TEST_TMPDIR/no-systemd"
-    [ "$status" -eq 0 ]
-    [ ! -s "$BATS_TEST_TMPDIR/calls" ]
+    [ "$status" -ne 0 ]
 }
 
 # postrm, the built one, run against a scratch root through DPKG_ROOT
@@ -167,33 +137,17 @@ postrm_root() {
     [ "$(readlink "$PR/etc/nginx/sites-enabled/default-anubis")" = /srv/other ]
 }
 
-@test "it installs the manifest, the site, the hooks, the drop-in and their documentation, nothing more" {
+# No REDIRECT_DOMAINS: with it empty, anubis 1.27.0-0+keel3 redirects a
+# solved challenge only to the request's own origin, so every name and
+# address the site is reached by works (a list fixed at start broke a new
+# DNS name, a 0042 site or a public IP behind NAT)
+@test "it installs the manifest, the site, the hook and their documentation, nothing more" {
     run bash -c "dpkg-deb -c '$DEB' | awk '{print \$6}' | grep -v '/\$' | sort"
     [ "$status" -eq 0 ]
-    expected="$(printf '%s\n' "./$SITE" "./$HOOK" "./$DOMAINS" "./$DROPIN" "./$DOMAINS_UNIT" \
+    expected="$(printf '%s\n' "./$SITE" "./$HOOK" \
         ./usr/share/doc/keel-web/changelog.gz ./usr/share/doc/keel-web/copyright \
         ./usr/share/keel/appliances/web.yaml | sort)"
     [ "$output" = "$expected" ]
-}
-
-# Anubis redirects a solved challenge to any host unless REDIRECT_DOMAINS
-# is set: the drop-in writes it from the machine's names and addresses
-# before each start, and the unit does not start without it
-@test "the drop-in of anubis@keel writes REDIRECT_DOMAINS before each start, as root" {
-    run listed "$DOMAINS"
-    [[ "$output" == "-rwxr-xr-x root/root "* ]]
-    cmp "$PACKAGE_DIR/anubis-redirect-domains" "$BUILD/root/$DOMAINS"
-    # systemd reads an EnvironmentFile before ExecStartPre (measured: the
-    # unit failed with "resources"), so a oneshot unit writes it first
-    run cat "$BUILD/root/$DROPIN"
-    [[ "$output" == *$'[Unit]\nRequires=keel-web-anubis-domains.service\nAfter=keel-web-anubis-domains.service'* ]]
-    [[ "$output" == *$'[Service]\nEnvironmentFile=/run/keel-web/anubis.env'* ]]
-    run cat "$BUILD/root/$DOMAINS_UNIT"
-    [[ "$output" == *$'Type=oneshot\nExecStart=/usr/lib/keel-web/anubis-redirect-domains /run/keel-web/anubis.env'* ]]
-    [[ "$output" != *RemainAfterExit* ]]
-    [[ "$output" != *"[Install]"* ]]
-    run listed "$DROPIN"
-    [[ "$output" == "-rw-r--r-- root/root "* ]]
 }
 
 # the site
