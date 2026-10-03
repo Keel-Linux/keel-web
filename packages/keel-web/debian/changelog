@@ -1,3 +1,52 @@
+keel-web (0.2.0) trixie; urgency=medium
+
+  * The default site of a simple installation is keel-web's,
+    /etc/nginx/sites-available/keel-default, in Debian's place (handbook
+    decision 0042, the first site of Keel-Linux/tracker#51): the default
+    server on 80 and 443, IPv6 first and IPv4 on, HTTP/2, TLS 1.2 and 1.3
+    with the machine's certificate as turnkey-make-ssl-cert --default
+    writes it (/etc/ssl/private/cert.pem, cert.key and dhparams.pem:
+    keel-host-keys at the first boot, the confconsole Certificate screen
+    through ACME later, in place), the ciphers of common's
+    zz-ssl-ciphers, no session tickets, and no HSTS, which comes after
+    ACME (tracker#51). HTTP
+    is served, not redirected: ACME's http-01 needs port 80 to answer.
+    /keel-health answers 204 on both schemes. On a Keel Web image, Debian's
+    default site served an empty /var/www/html (nginx's bare 404) and
+    nothing listened on 443.
+  * The pages: a placeholder saying this is a Keel Web node with no site
+    configured yet and where the operator configures one (confconsole,
+    /etc/keel/instance.yaml), the site's own 404 and 50x pages,
+    server_tokens off; static, no external resource, no server version.
+    Installed under /usr/share/keel-web/default-site, as Debian policy
+    keeps a package out of /var/www; the postinst links
+    /var/www/keel-default to it, and leaves a directory of the operator's
+    there alone.
+  * The postinst enables the site: it removes the link of Debian's default
+    site when that is the unedited one nginx-common shipped (recorded in
+    /var/lib/keel-web, as the state hook did), links keel-default and
+    tests with nginx -t; while the machine's certificate is not made yet,
+    as in fab's chroot, the site stays enabled and nginx -t is left to the
+    first boot, said in one line. An edited default site, a link of the
+    operator's or none at all leaves the default server the operator's,
+    and the script says so. An upgrade never re-enables a site the operator
+    disabled. The postrm takes the sites out of sites-enabled on remove as
+    on purge, since the pages leave with the package, and gives Debian's
+    link back.
+  * The anubis state hook puts the front in keel-default's place, not
+    Debian's, and keel-default back when the overlay is turned off; the
+    two sites are never enabled together, and Debian's default site is the
+    postinst's and postrm's alone. A machine upgraded from 0.1.1 in a cloud
+    mode gets keel-default the next time the overlay is turned off.
+  * The front serves the same pages, /var/www/keel-default, with the 404
+    and 50x pages (on 443 too, for a 502 while Anubis is down) and
+    server_tokens off in each of its three servers.
+  * Nginx needs the certificate to start on any port, so
+    /usr/lib/systemd/system/nginx.service.d/keel-web.conf has it want and
+    start after keel-host-keys.service, which makes a missing pair.
+
+ -- Marcos Mendez <mendez.foto@gmail.com>  Sat, 03 Oct 2026 02:00:00 +0000
+
 keel-web (0.1.1) trixie; urgency=medium
 
   * The Anubis front serves HTTPS. Anubis sets its cookies Secure, and

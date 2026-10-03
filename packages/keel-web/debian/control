@@ -26,9 +26,12 @@ Description: Keel Web, the base of every Keel web appliance
  nginx, coraza and anubis overlays, Nginx alone in a simple installation
  and the three of them in the cloud modes.
  .
- It also ships the Anubis front of the default site,
- /etc/nginx/sites-available/default-anubis (HTTPS with the machine's
- certificate, port 80 redirecting to it), and the state hook that keel
- spec apply runs when the anubis overlay is turned on or off, which puts
- that front in place of Debian's default site and back. Installing it
- enables nothing.
+ It also ships the default site of a simple installation,
+ /etc/nginx/sites-available/keel-default (HTTP and HTTPS with the machine's
+ certificate, a placeholder page until a site is configured, its own 404
+ and 50x pages), which its postinst enables in place of Debian's default
+ site; its Anubis front, /etc/nginx/sites-available/default-anubis (HTTPS
+ with the machine's certificate, port 80 redirecting to it); and the state
+ hook that keel spec apply runs when the anubis overlay is turned on or
+ off, which puts the front in the default site's place and back. Coraza and
+ Anubis are enabled by keel from the instance spec, never by this package.

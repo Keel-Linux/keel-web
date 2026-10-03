@@ -1,0 +1,137 @@
+#!/bin/sh
+# keel-web: on configure, put the default site of Keel Web in Debian's
+# place, and the pages where the site reads them (handbook decisions 0030
+# and 0042).
+#
+# The pages: /var/www/keel-default becomes a link to the package's
+# /usr/share/keel-web/default-site when nothing is there; a directory or
+# link of the operator's is left alone.
+#
+# The site: sites-enabled/keel-default is linked, and the link
+# sites-enabled/default of Debian's default site removed, when all of this
+# holds, with the same care decision 0042 asks of keel's sites:
+#   - the Anubis front (sites-enabled/default-anubis) is not enabled: then
+#     the default site is behind it, and the state hook puts keel-default
+#     back when the anubis overlay is turned off;
+#   - nothing is at sites-enabled/keel-default (it is enabled already, or
+#     the operator's), and this script has not enabled it before (the
+#     marker /var/lib/keel-web/keel-default-enabled: a link that is gone
+#     since was removed by the operator, and an upgrade does not put it
+#     back, as apache2's maintscript helper remembers a2dissite);
+#   - Debian's link is there, points to Debian's file, and that file is
+#     still the one nginx-common shipped (its conffile checksum). An edited
+#     default site, a link of the operator's, or no link at all means the
+#     default server is the operator's: nothing is changed and this says
+#     so. Debian's removal is recorded first, in
+#     /var/lib/keel-web/debian-default-unlinked, and the postrm puts the
+#     link back on remove and on purge.
+# Then, on a machine (not under DPKG_ROOT), nginx -t: refused, the links
+# are put back and the site is not enabled, said on stderr; the package is
+# configured either way, and the recipe's conf.d/main fails an image build
+# whose default site is not enabled. nginx -t is not run while the
+# machine's certificate (cert.pem, cert.key, dhparams.pem in
+# /etc/ssl/private) is missing, which is so in fab's chroot: keel-host-keys
+# and 15regen-sslcert make it at the first boot, before Nginx starts, and
+# nginx.service's own nginx -t checks the site then; the site stays
+# enabled and this says so in one line. A running Nginx is reloaded by the
+# nginx-reload trigger this package activates, and systemd reloaded for
+# Nginx's drop-in. Paths are under DPKG_ROOT,
+# as dpkg sets it (empty on a machine); tests/package.bats runs this
+# script against a scratch root that way, with dpkg-query as a stub.
+set -e
+
+R="${DPKG_ROOT:-}"
+SITE=/etc/nginx/sites-available/keel-default
+FRONT_SITE=/etc/nginx/sites-available/default-anubis
+DEBIAN_SITE=/etc/nginx/sites-available/default
+PAGES=/usr/share/keel-web/default-site
+LINK="$R/etc/nginx/sites-enabled/keel-default"
+FRONT="$R/etc/nginx/sites-enabled/default-anubis"
+DEBIAN="$R/etc/nginx/sites-enabled/default"
+WWW="$R/var/www/keel-default"
+STATE="$R/var/lib/keel-web"
+RECORD="$STATE/debian-default-unlinked"
+ENABLED="$STATE/keel-default-enabled"
+TLS_DIR=/etc/ssl/private
+
+say() {
+    echo "keel-web: $*"
+}
+
+# the machine's certificate as turnkey-make-ssl-cert --default writes it,
+# the files the default site reads
+have_cert() {
+    for file in cert.pem cert.key dhparams.pem; do
+        [ -f "$R$TLS_DIR/$file" ] || return 1
+    done
+}
+
+# Debian's default site as nginx-common shipped it, by its conffile checksum
+pristine() {
+    shipped="$(dpkg-query -W -f='${Conffiles}\n' nginx-common 2>/dev/null \
+        | awk -v f="$DEBIAN_SITE" '$1 == f { print $2 }')" || return 1
+    current="$(md5sum < "$R$DEBIAN_SITE" 2>/dev/null | cut -d' ' -f1)" || return 1
+    [ -n "$shipped" ] && [ "$shipped" = "$current" ]
+}
+
+link_pages() {
+    if [ ! -e "$WWW" ] && [ ! -L "$WWW" ]; then
+        mkdir -p "$R/var/www"
+        ln -s "$PAGES" "$WWW"
+    fi
+}
+
+enable_site() {
+    if [ "$(readlink "$FRONT" 2>/dev/null || true)" = "$FRONT_SITE" ]; then
+        say "the default site is behind Anubis (default-anubis is enabled); keel-web's own comes back when the anubis overlay is turned off"
+        mkdir -p "$STATE"
+        : > "$ENABLED"
+        return 0
+    fi
+    if [ -e "$LINK" ] || [ -L "$LINK" ]; then
+        return 0
+    fi
+    if [ -f "$ENABLED" ]; then
+        say "the default site was disabled by the operator (its link in sites-enabled/ is gone): left so"
+        return 0
+    fi
+    if [ ! -e "$DEBIAN" ] && [ ! -L "$DEBIAN" ]; then
+        say "Debian's default site is not enabled, so the default server is the operator's: it is left alone, and keel-web's default site is not enabled (link $SITE into sites-enabled/ to serve it)"
+        return 0
+    fi
+    if [ ! -L "$DEBIAN" ] || [ "$(readlink "$DEBIAN")" != "$DEBIAN_SITE" ]; then
+        say "sites-enabled/default is not Debian's default site's link: it is the operator's, left alone, and keel-web's default site is not enabled"
+        return 0
+    fi
+    if ! pristine; then
+        say "$DEBIAN_SITE is edited (or nginx-common's checksum cannot be read): it is the operator's, left alone, and keel-web's default site is not enabled"
+        return 0
+    fi
+    mkdir -p "$STATE"
+    : > "$RECORD"
+    rm -f "$DEBIAN"
+    ln -s "$SITE" "$LINK"
+    if ! have_cert; then
+        say "$TLS_DIR/cert.pem, cert.key or dhparams.pem is not made yet: nginx -t of the default site is left to the first boot, when keel-host-keys makes them"
+    elif [ -z "$R" ] && command -v nginx >/dev/null && ! nginx -t; then
+        rm -f "$LINK"
+        ln -s "$DEBIAN_SITE" "$DEBIAN"
+        rm -f "$RECORD"
+        say "nginx -t refused the configuration with the default site: Debian's default site is kept, and keel-web's is not enabled" >&2
+        return 0
+    fi
+    : > "$ENABLED"
+    say "the default site is enabled in place of Debian's default site (its link removed, its file kept)"
+}
+
+if [ "$1" = configure ]; then
+    link_pages
+    enable_site
+    if [ -z "$R" ] && [ -d /run/systemd/system ]; then
+        systemctl daemon-reload || true
+    fi
+fi
+
+#DEBHELPER#
+
+exit 0
