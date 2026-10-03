@@ -1,9 +1,13 @@
 #!/usr/bin/make -f
-# The appliance manifest, the Anubis front of the default site and the
-# state hook sit beside debian/ (docs/manifest-v1.md in the handbook,
-# "Kinds, and where each file lives") and are installed under the names
-# keel and Nginx look them up by. The site is a conffile; nothing links it
-# at installation, which is the hook's when the anubis overlay is enabled.
+# The appliance manifest, the two sites (the default site and its Anubis
+# front), the pages of the default site and the state hook sit beside
+# debian/ (docs/manifest-v1.md in the handbook, "Kinds, and where each file
+# lives") and are installed under the names keel and Nginx look them up by.
+# The sites are conffiles. The pages go under /usr/share, as Debian policy
+# keeps a package out of /var/www; the postinst links /var/www/keel-default
+# to them and the default site into sites-enabled/, and the hook links the
+# front when the anubis overlay is enabled. Nginx's drop-in has it start
+# after keel-host-keys.service, which makes the certificate the sites read.
 
 PKG = debian/keel-web
 
@@ -12,6 +16,12 @@ PKG = debian/keel-web
 
 execute_after_dh_auto_install:
 	install -D -m 0644 manifest.yaml $(PKG)/usr/share/keel/appliances/web.yaml
+	install -D -m 0644 keel-default $(PKG)/etc/nginx/sites-available/keel-default
 	install -D -m 0644 default-anubis $(PKG)/etc/nginx/sites-available/default-anubis
+	install -D -m 0644 site/index.html $(PKG)/usr/share/keel-web/default-site/index.html
+	install -D -m 0644 site/404.html $(PKG)/usr/share/keel-web/default-site/404.html
+	install -D -m 0644 site/50x.html $(PKG)/usr/share/keel-web/default-site/50x.html
+	install -D -m 0644 nginx-keel-host-keys.conf \
+		$(PKG)/usr/lib/systemd/system/nginx.service.d/keel-web.conf
 	install -D -m 0755 anubis-front \
 		$(PKG)/usr/lib/keel/overlays/anubis/state.d/50keel-web

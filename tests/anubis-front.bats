@@ -2,23 +2,23 @@
 # Unit tests of packages/keel-web/anubis-front, the state hook keel runs
 # as /usr/lib/keel/overlays/anubis/state.d/50keel-web when the anubis
 # overlay is turned on or off. It runs against a scratch /etc/nginx named
-# by KEEL_NGINX_DIR, with nginx and dpkg-query as stubs first in PATH that
-# log their arguments: no root, no Nginx, no dpkg database.
+# by KEEL_NGINX_DIR, with nginx as a stub first in PATH that logs its
+# arguments: no root, no Nginx. The tree starts as keel-web's postinst
+# leaves a simple installation: keel-default linked, Debian's default not.
 
 bats_require_minimum_version 1.5.0
 
 HOOK="$BATS_TEST_DIRNAME/../packages/keel-web/anubis-front"
-DEBIAN_TEXT="# Debian's default server, as nginx-common ships it"
 
 setup() {
     T=$(mktemp -d)
     N="$T/nginx"
     mkdir -p "$N/sites-available" "$N/sites-enabled" "$T/bin"
-    echo "$DEBIAN_TEXT" > "$N/sites-available/default"
+    echo "# Debian's default server, as nginx-common ships it" > "$N/sites-available/default"
+    echo "# keel-web's default site" > "$N/sites-available/keel-default"
     echo "# keel-web's front" > "$N/sites-available/default-anubis"
-    ln -s "$N/sites-available/default" "$N/sites-enabled/default"
+    ln -s "$N/sites-available/keel-default" "$N/sites-enabled/keel-default"
     export KEEL_NGINX_DIR="$N"
-    export KEEL_WEB_STATE_DIR="$T/state"
     export KEEL_NGINX_PID="$T/nginx.pid"
     echo $$ > "$KEEL_NGINX_PID"
     export CALLS="$T/calls"
@@ -32,15 +32,7 @@ echo "nginx $* [$(cd "$KEEL_NGINX_DIR/sites-enabled" && ls | tr '\n' ' ')]" >> "
 [ "$1" = -s ] && [ -e "$STUB_DIR/reload-fails" ] && { echo "nginx: [error] reload failed" >&2; exit 1; }
 exit 0
 STUB
-    # dpkg-query: nginx-common's conffiles, the default site with the
-    # checksum of DEBIAN_TEXT; fails while $T/no-nginx-common exists
-    cat > "$T/bin/dpkg-query" <<STUB
-#!/bin/bash
-[ -e "\$STUB_DIR/no-nginx-common" ] && { echo "dpkg-query: no packages found matching nginx-common" >&2; exit 1; }
-echo " /etc/nginx/nginx.conf 0123456789abcdef0123456789abcdef"
-echo " /etc/nginx/sites-available/default $(echo "$DEBIAN_TEXT" | md5sum | cut -d' ' -f1)"
-STUB
-    chmod +x "$T/bin/nginx" "$T/bin/dpkg-query"
+    chmod +x "$T/bin/nginx"
     export STUB_DIR="$T"
     PATH="$T/bin:$PATH"
     # the machine's certificate, which keel-host-keys makes at first boot
@@ -57,18 +49,13 @@ front_linked() {
     [ "$(readlink "$N/sites-enabled/default-anubis")" = "$N/sites-available/default-anubis" ]
 }
 
-debian_linked() {
-    [ "$(readlink "$N/sites-enabled/default")" = "$N/sites-available/default" ]
+site_linked() {
+    [ "$(readlink "$N/sites-enabled/keel-default")" = "$N/sites-available/keel-default" ]
 }
 
-recorded() {
-    [ -f "$KEEL_WEB_STATE_DIR/debian-default-unlinked" ]
-}
-
-# a plain test, not `! recorded`: bats ignores a negation that is not the
-# last command of a test
-not_recorded() {
-    [ ! -e "$KEEL_WEB_STATE_DIR/debian-default-unlinked" ]
+# a plain test, not `! -L`: nothing at the path, link or file
+nothing_at() {
+    [ ! -e "$1" ] && [ ! -L "$1" ]
 }
 
 # usage
@@ -86,12 +73,11 @@ not_recorded() {
 
 # enabled
 
-@test "enabled puts the front in place of Debian's default site, tests and reloads" {
+@test "enabled puts the front in place of the default site, tests and reloads" {
     run bash "$HOOK" enabled
     [ "$status" -eq 0 ]
     front_linked
-    [ ! -e "$N/sites-enabled/default" ] && [ ! -L "$N/sites-enabled/default" ]
-    recorded
+    nothing_at "$N/sites-enabled/keel-default"
     [ "$(cat "$CALLS")" = $'nginx -t [default-anubis ]\nnginx -s reload [default-anubis ]' ]
     [[ "$output" == *"enabled: the default site goes through Anubis"* ]]
 }
@@ -105,15 +91,14 @@ not_recorded() {
     [ ! -s "$CALLS" ]
 }
 
-@test "enabled leaves an edited Debian default site alone and refuses" {
-    echo "server { listen 80 default_server; root /srv/mine; }" > "$N/sites-available/default"
+# Debian's default site is nothing to the hook any more: keel-web's
+# postinst took its link away, and the postrm gives it back
+@test "enabled never touches Debian's default site" {
+    ln -s "$N/sites-available/default" "$N/sites-enabled/default"
     run bash "$HOOK" enabled
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"edited"* ]]
-    debian_linked
-    [ ! -L "$N/sites-enabled/default-anubis" ]
-    not_recorded
-    [ ! -s "$CALLS" ]
+    [ "$status" -eq 0 ]
+    front_linked
+    [ "$(readlink "$N/sites-enabled/default")" = "$N/sites-available/default" ]
 }
 
 # The front serves HTTPS with the machine's certificate: Anubis's cookies
@@ -125,9 +110,8 @@ not_recorded() {
     run bash "$HOOK" enabled
     [ "$status" -eq 1 ]
     [[ "$output" == *"$KEEL_WEB_CERT"*"the machine's certificate"*"not there"* ]]
-    debian_linked
-    [ ! -L "$N/sites-enabled/default-anubis" ]
-    not_recorded
+    site_linked
+    nothing_at "$N/sites-enabled/default-anubis"
     [ ! -s "$CALLS" ]
 }
 
@@ -136,8 +120,7 @@ not_recorded() {
     run bash "$HOOK" enabled
     [ "$status" -eq 1 ]
     [[ "$output" == *"$KEEL_WEB_KEY"*"not there"* ]]
-    debian_linked
-    [ ! -L "$N/sites-enabled/default-anubis" ]
+    site_linked
     [ ! -s "$CALLS" ]
 }
 
@@ -145,7 +128,7 @@ not_recorded() {
     : > "$KEEL_WEB_CERT"
     run bash "$HOOK" enabled
     [ "$status" -eq 1 ]
-    debian_linked
+    site_linked
 }
 
 @test "disabled does not need the certificate" {
@@ -153,32 +136,25 @@ not_recorded() {
     rm "$KEEL_WEB_CERT" "$KEEL_WEB_KEY"
     run bash "$HOOK" disabled
     [ "$status" -eq 0 ]
-    debian_linked
+    site_linked
 }
 
-@test "enabled refuses when nginx-common's checksum cannot be read" {
-    : > "$T/no-nginx-common"
+@test "enabled refuses a keel-default link that points somewhere else" {
+    ln -sfn /srv/mine "$N/sites-enabled/keel-default"
     run bash "$HOOK" enabled
     [ "$status" -eq 1 ]
-    debian_linked
-    [ ! -L "$N/sites-enabled/default-anubis" ]
+    [[ "$output" == *"points to /srv/mine"* ]]
+    nothing_at "$N/sites-enabled/default-anubis"
+    [ "$(readlink "$N/sites-enabled/keel-default")" = /srv/mine ]
 }
 
-@test "enabled refuses a default link that points somewhere else" {
-    ln -sfn "$N/sites-available/default-anubis" "$N/sites-enabled/default"
-    run bash "$HOOK" enabled
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"points to"* ]]
-    [ ! -L "$N/sites-enabled/default-anubis" ]
-}
-
-@test "enabled refuses a default site that is a file, not a link" {
-    rm "$N/sites-enabled/default"
-    echo "server {}" > "$N/sites-enabled/default"
+@test "enabled refuses a keel-default that is a file, not a link" {
+    rm "$N/sites-enabled/keel-default"
+    echo "server {}" > "$N/sites-enabled/keel-default"
     run bash "$HOOK" enabled
     [ "$status" -eq 1 ]
     [[ "$output" == *"not a link"* ]]
-    [ -f "$N/sites-enabled/default" ]
+    [ -f "$N/sites-enabled/keel-default" ]
 }
 
 @test "enabled refuses a file of the operator's where the front goes" {
@@ -186,28 +162,18 @@ not_recorded() {
     run bash "$HOOK" enabled
     [ "$status" -eq 1 ]
     [[ "$output" == *"not a link"* ]]
-    debian_linked
+    site_linked
 }
 
-# Debian's link gone is the operator's choice, and the default server may
-# be a site of theirs: the front would take default_server from it
-@test "enabled with Debian's default unlinked leaves the default server alone and says so" {
-    rm "$N/sites-enabled/default"
+# The default site's link gone is the operator's choice, and the default
+# server may be a site of theirs: the front would take default_server
+# from it
+@test "enabled with the default site unlinked leaves the default server alone and says so" {
+    rm "$N/sites-enabled/keel-default"
     run bash "$HOOK" enabled
     [ "$status" -eq 0 ]
-    [[ "$output" == *"Debian's default site is not enabled"*"left alone"* ]]
-    [ ! -e "$N/sites-enabled/default-anubis" ] && [ ! -L "$N/sites-enabled/default-anubis" ]
-    not_recorded
-    [ ! -s "$CALLS" ]
-}
-
-@test "enabled refuses and keeps Debian's link when the record cannot be written" {
-    echo "a file where the state directory goes" > "$T/state"
-    run bash "$HOOK" enabled
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"cannot record"* ]]
-    debian_linked
-    [ ! -L "$N/sites-enabled/default-anubis" ]
+    [[ "$output" == *"keel-web's default site is not enabled"*"left alone"* ]]
+    nothing_at "$N/sites-enabled/default-anubis"
     [ ! -s "$CALLS" ]
 }
 
@@ -216,9 +182,8 @@ not_recorded() {
     run bash "$HOOK" enabled
     [ "$status" -eq 1 ]
     [[ "$output" == *"nginx -t refused"* ]]
-    debian_linked
-    [ ! -L "$N/sites-enabled/default-anubis" ]
-    not_recorded
+    site_linked
+    nothing_at "$N/sites-enabled/default-anubis"
     [ "$(cat "$CALLS")" = 'nginx -t [default-anubis ]' ]
 }
 
@@ -227,10 +192,9 @@ not_recorded() {
     run bash "$HOOK" enabled
     [ "$status" -eq 1 ]
     [[ "$output" == *"reload failed"* ]]
-    debian_linked
-    [ ! -L "$N/sites-enabled/default-anubis" ]
-    not_recorded
-    [ "$(sed -n 3p "$CALLS")" = 'nginx -s reload [default ]' ]
+    site_linked
+    nothing_at "$N/sites-enabled/default-anubis"
+    [ "$(sed -n 3p "$CALLS")" = 'nginx -s reload [keel-default ]' ]
 }
 
 @test "enabled with Nginx stopped links and tests, and reloads nothing" {
@@ -251,50 +215,54 @@ not_recorded() {
 
 # disabled
 
-@test "disabled puts Debian's default site back, tests and reloads" {
+@test "disabled puts the default site back, tests and reloads" {
     bash "$HOOK" enabled
     : > "$CALLS"
     run bash "$HOOK" disabled
     [ "$status" -eq 0 ]
-    debian_linked
-    [ ! -L "$N/sites-enabled/default-anubis" ]
-    not_recorded
-    [ "$(cat "$CALLS")" = $'nginx -t [default ]\nnginx -s reload [default ]' ]
-    [[ "$output" == *"disabled: the default site is Debian's"* ]]
+    site_linked
+    nothing_at "$N/sites-enabled/default-anubis"
+    [ "$(cat "$CALLS")" = $'nginx -t [keel-default ]\nnginx -s reload [keel-default ]' ]
+    [[ "$output" == *"disabled: the default site is keel-web's"* ]]
 }
 
 @test "disabled on a tree that never had the front is unchanged" {
     run bash "$HOOK" disabled
     [ "$status" -eq 0 ]
     [[ "$output" == *"unchanged (disabled)"* ]]
-    debian_linked
+    site_linked
     [ ! -s "$CALLS" ]
 }
 
-@test "disabled makes no Debian link that was not there before" {
-    rm "$N/sites-enabled/default"
-    bash "$HOOK" enabled
+# a machine upgraded from keel-web 0.1.1 in a cloud mode: the front was
+# put in Debian's place, and the default site has never been linked
+@test "disabled after an upgrade from 0.1.1 puts the default site in, not Debian's" {
+    rm "$N/sites-enabled/keel-default"
+    ln -s "$N/sites-available/default-anubis" "$N/sites-enabled/default-anubis"
     run bash "$HOOK" disabled
     [ "$status" -eq 0 ]
-    [[ "$output" == *"unchanged (disabled)"* ]]
-    [ ! -e "$N/sites-enabled/default" ] && [ ! -L "$N/sites-enabled/default" ]
+    site_linked
+    nothing_at "$N/sites-enabled/default-anubis"
+    nothing_at "$N/sites-enabled/default"
 }
 
-@test "a rollback of enabled forgets the record it wrote" {
-    : > "$T/t-fails"
-    run bash "$HOOK" enabled
-    [ "$status" -eq 1 ]
-    debian_linked
-    not_recorded
-}
-
-@test "disabled keeps a default link the operator made meanwhile" {
+@test "disabled with the default site's file gone makes no dangling link" {
     bash "$HOOK" enabled
-    ln -s /srv/elsewhere "$N/sites-enabled/default"
+    rm "$N/sites-available/keel-default"
     run bash "$HOOK" disabled
     [ "$status" -eq 0 ]
-    [ "$(readlink "$N/sites-enabled/default")" = /srv/elsewhere ]
-    not_recorded
+    [[ "$output" == *"disabled"*"no default site"* ]]
+    nothing_at "$N/sites-enabled/keel-default"
+    nothing_at "$N/sites-enabled/default-anubis"
+}
+
+@test "disabled keeps a keel-default link the operator made meanwhile" {
+    bash "$HOOK" enabled
+    ln -s /srv/elsewhere "$N/sites-enabled/keel-default"
+    run bash "$HOOK" disabled
+    [ "$status" -eq 0 ]
+    [ "$(readlink "$N/sites-enabled/keel-default")" = /srv/elsewhere ]
+    nothing_at "$N/sites-enabled/default-anubis"
 }
 
 @test "disabled refuses a file of the operator's where the front was" {
@@ -312,8 +280,7 @@ not_recorded() {
     [ "$status" -eq 1 ]
     [[ "$output" == *"nginx -t refused"* ]]
     front_linked
-    [ ! -L "$N/sites-enabled/default" ]
-    recorded
+    nothing_at "$N/sites-enabled/keel-default"
 }
 
 @test "disabled says so when the reload fails, and keeps the files disabled" {
@@ -322,8 +289,8 @@ not_recorded() {
     run bash "$HOOK" disabled
     [ "$status" -eq 1 ]
     [[ "$output" == *"until Nginx restarts"* ]]
-    debian_linked
-    [ ! -L "$N/sites-enabled/default-anubis" ]
+    site_linked
+    nothing_at "$N/sites-enabled/default-anubis"
 }
 
 @test "disabled with Nginx stopped unlinks and tests, and reloads nothing" {
@@ -332,6 +299,20 @@ not_recorded() {
     : > "$CALLS"
     run bash "$HOOK" disabled
     [ "$status" -eq 0 ]
-    debian_linked
-    [ "$(cat "$CALLS")" = 'nginx -t [default ]' ]
+    site_linked
+    [ "$(cat "$CALLS")" = 'nginx -t [keel-default ]' ]
+}
+
+# the two sites are never enabled together: every path through the hook
+# ends with one of them, or with neither when the operator took theirs away
+@test "enabled then disabled, twice over, leaves exactly one of the two sites enabled each time" {
+    local round
+    for round in 1 2; do
+        bash "$HOOK" enabled
+        front_linked
+        nothing_at "$N/sites-enabled/keel-default"
+        bash "$HOOK" disabled
+        site_linked
+        nothing_at "$N/sites-enabled/default-anubis"
+    done
 }

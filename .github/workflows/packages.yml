@@ -1,22 +1,36 @@
 # The keel-web package of packages/keel-web (handbook decision 0041, first
-# implementation, step 7). The check is "build / trixie".
+# implementation, step 7). The checks are "build / trixie" and
+# "site / trixie".
 #
-# The package is built, source and binary, with dpkg-buildpackage and
-# linted with lintian, any error or warning failing, on trixie, the
+# build: the package is built, source and binary, with dpkg-buildpackage
+# and linted with lintian, any error or warning failing, on trixie, the
 # release it is for; then tests/package.bats builds it again and reads back
-# its fields, its files, its postrm and the manifest. Nothing is signed or
-# published: publishing is the maintainer's attended release
-# (Keel-Linux/apt, docs/build-host.md). What the package does on a
-# machine, the manifest resolving and keel turning Coraza and Anubis on
-# and off from it, is proven on the built image (tests/README.md, "The
-# package on a built image").
+# its fields, its files, its sites, its pages, its maintainer scripts and
+# the manifest. Nothing is signed or published: publishing is the
+# maintainer's attended release (Keel-Linux/apt, docs/build-host.md).
 #
-# The job runs in a Debian trixie system container, an unprivileged LXC
+# site: the package installed on a booted trixie container with Nginx and
+# common's nginx and anubis overlays, then tests/site.bats: the default
+# site of a simple installation served on both schemes with the machine's
+# certificate, /keel-health, the pages, the switch to the Anubis front and
+# back through the state hook, and a remove, reinstall and purge. The two
+# overlays are built from the commit of Keel-Linux/common pinned below
+# (debhelper-only packages). keel, keel-core, anubis and
+# keel-overlay-coraza are stand-ins made with equivs: the site needs none
+# of them running, and what they do is proven in common's "web" job and on
+# the built image (tests/README.md, "The package on a built image"); so
+# behind the front port 443 answers 502 here, which is enough to see that
+# the front took it. The machine's certificate is made the way
+# turnkey-make-ssl-cert --default lays it out, since keel-host-keys does
+# not run here. What keel spec apply does with the manifest, turning Coraza
+# and Anubis on and off from it, is the image run's.
+#
+# The jobs run in a Debian trixie system container, an unprivileged LXC
 # container with its own systemd on the self-hosted runner keel-lxc-1,
 # through the reusable workflow lxc-trixie.yml of Keel-Linux/.github, as
 # keel-core's does. Keel runs no application containers in CI. A pull
 # request from a fork never reaches the self-hosted runner, so it gets no
-# build, lint or package.bats result here.
+# build, lint or bats result here.
 name: packages
 
 on:
@@ -47,3 +61,60 @@ jobs:
         mkdir -p dist
         cp "$work"/*.deb "$work"/*.dsc "$work"/*.tar.* "$work"/*.changes dist/
         bats tests/package.bats
+
+  site:
+    needs: build
+    uses: keel-linux/.github/.github/workflows/lxc-trixie.yml@main
+    with:
+      systemd: true
+      timeout: 30
+      download: keel-web-deb
+      download-dir: dist
+      run: |
+        # common's 19.x of 2026-10-02: keel-overlay-nginx 0.1.0 and
+        # keel-overlay-anubis, the two overlays whose files the sites read
+        COMMON_COMMIT=bc2c53e08ccdd810898534c080001793de86c41e
+        apt-get update -qq
+        apt-get install -y -qq --no-install-recommends \
+          ca-certificates git build-essential debhelper equivs bats curl \
+          openssl iproute2 nginx libnginx-mod-stream
+        src=/tmp/src/common
+        git init -q "$src"
+        git -C "$src" fetch -q --depth 1 \
+          https://github.com/Keel-Linux/common.git "$COMMON_COMMIT"
+        git -C "$src" checkout -q FETCH_HEAD
+        mkdir -p /tmp/deps
+        for overlay in nginx anubis; do
+          cp -a "$src/packages/$overlay" "/tmp/src/overlay-$overlay"
+          (cd "/tmp/src/overlay-$overlay" && dpkg-buildpackage -us -uc -b)
+        done
+        mv /tmp/src/keel-overlay-*.deb /tmp/deps/
+        # the stand-ins: the dependencies of keel-web and of the anubis
+        # overlay that this suite does not exercise
+        for standin in keel:0.15.0 keel-core:0.1.0 anubis:1.27.0-0+keel3 \
+                       keel-overlay-coraza:0.1.2; do
+          name="${standin%%:*}"
+          version="${standin#*:}"
+          printf 'Section: misc\nPriority: optional\nStandards-Version: 4.7.2\nPackage: %s\nVersion: %s\nArchitecture: all\nDescription: stand-in for the site test of keel-web\n not the real package; see .github/workflows/packages.yml of Keel-Linux/keel-web\n' \
+            "$name" "$version" > "/tmp/deps/$name.ctl"
+          (cd /tmp/deps && equivs-build "$name.ctl")
+        done
+        # the machine's certificate, laid out as turnkey-make-ssl-cert
+        # --default writes it: cert.crt, cert.key, dhparams.pem, and the
+        # three together in cert.pem
+        umask 077
+        openssl req -x509 -newkey rsa:2048 -nodes -days 2 \
+          -subj "/CN=$(hostname -f 2>/dev/null || hostname)" \
+          -keyout /etc/ssl/private/cert.key \
+          -out /usr/local/share/ca-certificates/cert.crt
+        openssl dhparam -out /etc/ssl/private/dhparams.pem 2048
+        cat /usr/local/share/ca-certificates/cert.crt /etc/ssl/private/cert.key \
+          /etc/ssl/private/dhparams.pem > /etc/ssl/private/cert.pem
+        chmod 0644 /usr/local/share/ca-certificates/cert.crt
+        umask 022
+        # Nginx as a fresh install leaves it, then keel-web over it
+        systemctl is-active nginx.service
+        apt-get install -y -q --no-install-recommends /tmp/deps/*.deb \
+          ./dist/keel-web_*.deb
+        KEEL_WEB_SITE_TEST=1 KEEL_WEB_DEB="$(ls /src/dist/keel-web_*_all.deb)" \
+          bats tests/site.bats

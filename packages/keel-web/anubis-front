@@ -6,29 +6,29 @@
 # overlay is turned on or off: after anubis@keel.service starts, and
 # before it stops (keel's docs/apply.md, "State hooks").
 #
-# enabled: replaces the link sites-enabled/default (Debian's default site)
-# with sites-enabled/default-anubis, the same content behind Anubis: its
-# servers take the default server on port 80, which redirects to HTTPS,
-# and on port 443, which serves HTTPS with the machine's certificate
-# (refused, changing nothing, while it is not there) and sends every
-# request through /etc/nginx/snippets/keel-anubis.conf of
-# keel-overlay-anubis, and
-# what Anubis allows comes back on unix:/run/nginx/keel-app.sock, where
-# /var/www/html is served. The front only ever replaces Debian's link, and
-# only while it points to Debian's file and that file is still the one
-# nginx-common shipped (its conffile checksum); an edited default site is
-# the operator's and is left alone, and the run refuses (decision 0042,
-# "Debian's default site", has keel's sites take the same care). With no
-# Debian link the default server is the operator's: nothing is changed,
-# and the run says so. The removal is recorded before the link goes, so
-# disabled puts it back and a failed record never loses it.
+# enabled: replaces the link sites-enabled/keel-default (the default site
+# of a simple installation, which the package's postinst enabled) with
+# sites-enabled/default-anubis, the same pages behind Anubis: its servers
+# take the default server on port 80, which redirects to HTTPS, and on
+# port 443, which serves HTTPS with the machine's certificate (refused,
+# changing nothing, while it is not there) and sends every request through
+# /etc/nginx/snippets/keel-anubis.conf of keel-overlay-anubis, and what
+# Anubis allows comes back on unix:/run/nginx/keel-app.sock, where the
+# pages are served. The front only ever takes the default site's place,
+# and only while that link points to keel-web's file: a link of the
+# operator's or a file there is refused, and with no keel-default link the
+# default server is the operator's, so nothing is changed and the run says
+# so (decision 0042, "Debian's default site", has keel's sites take the
+# same care). Debian's own default site is nothing to this hook: the
+# postinst took its link away and the postrm gives it back.
 #
-# disabled: removes the front, and puts Debian's link back if this hook
-# removed it and nothing took its place meanwhile.
+# disabled: removes the front, and links the default site again where
+# nothing stands, when its file is there (the package is installed).
 #
 # Either way the result is tested with `nginx -t` and Nginx reloaded when
 # it runs; a refused test puts the links back as they were and fails, and
-# a failed reload after enabled does the same and reloads again.
+# a failed reload after enabled does the same and reloads again. The two
+# sites are never enabled together.
 #
 # Exit codes: 0 done or unchanged, 1 refused or rolled back, 2 usage.
 #
@@ -37,16 +37,12 @@
 set -euo pipefail
 
 NGINX_DIR="${KEEL_NGINX_DIR:-/etc/nginx}"
-STATE_DIR="${KEEL_WEB_STATE_DIR:-/var/lib/keel-web}"
 PID_FILE="${KEEL_NGINX_PID:-/run/nginx.pid}"
 
 FRONT_SITE="$NGINX_DIR/sites-available/default-anubis"
 FRONT_LINK="$NGINX_DIR/sites-enabled/default-anubis"
-DEBIAN_SITE="$NGINX_DIR/sites-available/default"
-DEBIAN_LINK="$NGINX_DIR/sites-enabled/default"
-# the conffile as dpkg names it, whatever NGINX_DIR is
-DEBIAN_CONFFILE=/etc/nginx/sites-available/default
-RECORD="$STATE_DIR/debian-default-unlinked"
+DEFAULT_SITE="$NGINX_DIR/sites-available/keel-default"
+DEFAULT_LINK="$NGINX_DIR/sites-enabled/keel-default"
 # the machine's certificate, which the front serves HTTPS with
 CERT="${KEEL_WEB_CERT:-/usr/local/share/ca-certificates/cert.crt}"
 KEY="${KEEL_WEB_KEY:-/etc/ssl/private/cert.key}"
@@ -73,23 +69,6 @@ refuse_file() {
     fi
 }
 
-# Debian's default site as nginx-common shipped it
-pristine() {
-    local shipped current
-    shipped="$(dpkg-query -W -f='${Conffiles}\n' nginx-common 2>/dev/null | awk -v f="$DEBIAN_CONFFILE" '$1 == f { print $2 }')" || return 1
-    current="$(md5sum < "$DEBIAN_SITE" 2>/dev/null | cut -d' ' -f1)" || return 1
-    [ -n "$shipped" ] && [ "$shipped" = "$current" ]
-}
-
-# Debian's link may go: it points to Debian's unedited file
-may_unlink_debian() {
-    refuse_file "$DEBIAN_LINK"
-    local target
-    target="$(readlink "$DEBIAN_LINK")"
-    [ "$target" = "$DEBIAN_SITE" ] || fail "$DEBIAN_LINK points to $target, not Debian's default site; it is left alone and Anubis is not put in front of it"
-    pristine || fail "$DEBIAN_SITE is edited (or nginx-common's checksum cannot be read): it is the operator's, left alone, and Anubis is not put in front of it"
-}
-
 # The front serves HTTPS with the machine's certificate (keel-host-keys
 # makes it at the first boot); without it nginx -t would refuse the front.
 # Said here, before anything changes.
@@ -100,26 +79,29 @@ has_certificate() {
     done
 }
 
+default_site_linked() {
+    [ "$(readlink "$DEFAULT_LINK" 2>/dev/null || true)" = "$DEFAULT_SITE" ]
+}
+
 enable() {
     if [ "$(readlink "$FRONT_LINK" || true)" = "$FRONT_SITE" ]; then
         say "unchanged (enabled)"
         return 0
     fi
     refuse_file "$FRONT_LINK"
-    # The front only ever takes Debian's place. Without Debian's link the
-    # default server is whatever the operator made it, and the front's
+    # The front only ever takes the default site's place. Without its link
+    # the default server is whatever the operator made it, and the front's
     # default_server would take it from them.
-    if [ ! -e "$DEBIAN_LINK" ] && [ ! -L "$DEBIAN_LINK" ]; then
-        say "Debian's default site is not enabled, so the default server is the operator's: it is left alone, and Anubis is put in front of no site"
+    if [ ! -e "$DEFAULT_LINK" ] && [ ! -L "$DEFAULT_LINK" ]; then
+        say "keel-web's default site is not enabled, so the default server is the operator's: it is left alone, and Anubis is put in front of no site"
         return 0
     fi
-    may_unlink_debian
+    refuse_file "$DEFAULT_LINK"
+    local target
+    target="$(readlink "$DEFAULT_LINK")"
+    [ "$target" = "$DEFAULT_SITE" ] || fail "$DEFAULT_LINK points to $target, not keel-web's default site; it is left alone and Anubis is not put in front of it"
     has_certificate
-    # recorded before the link goes, so that a failed write never loses it
-    if ! { mkdir -p "$STATE_DIR" && : > "$RECORD"; } 2>/dev/null; then
-        fail "cannot record the change in $RECORD; nothing changed"
-    fi
-    rm -f "$DEBIAN_LINK"
+    rm -f "$DEFAULT_LINK"
     ln -sfn "$FRONT_SITE" "$FRONT_LINK"
     if ! nginx -t; then
         undo_enable
@@ -139,35 +121,37 @@ enable() {
 
 undo_enable() {
     rm -f "$FRONT_LINK"
-    ln -sfn "$DEBIAN_SITE" "$DEBIAN_LINK"
-    rm -f "$RECORD"
+    ln -sfn "$DEFAULT_SITE" "$DEFAULT_LINK"
 }
 
 disable() {
     refuse_file "$FRONT_LINK"
-    if [ ! -L "$FRONT_LINK" ] && [ ! -f "$RECORD" ]; then
+    if [ ! -L "$FRONT_LINK" ]; then
         say "unchanged (disabled)"
         return 0
     fi
     local front relinked=no
-    front="$(readlink "$FRONT_LINK" || true)"
+    front="$(readlink "$FRONT_LINK")"
     rm -f "$FRONT_LINK"
-    if [ -f "$RECORD" ] && [ ! -e "$DEBIAN_LINK" ] && [ ! -L "$DEBIAN_LINK" ]; then
-        ln -s "$DEBIAN_SITE" "$DEBIAN_LINK"
+    if [ ! -e "$DEFAULT_LINK" ] && [ ! -L "$DEFAULT_LINK" ] && [ -f "$DEFAULT_SITE" ]; then
+        ln -s "$DEFAULT_SITE" "$DEFAULT_LINK"
         relinked=yes
     fi
     if ! nginx -t; then
-        [ "$relinked" = no ] || rm -f "$DEBIAN_LINK"
-        [ -z "$front" ] || ln -s "$front" "$FRONT_LINK"
+        [ "$relinked" = no ] || rm -f "$DEFAULT_LINK"
+        ln -s "$front" "$FRONT_LINK"
         fail "nginx -t refused the configuration without the front; the links are put back"
     fi
-    rm -f "$RECORD"
+    local state="the default site is keel-web's"
+    if ! default_site_linked; then
+        state="no default site is enabled ($DEFAULT_SITE is not there, or the link is the operator's)"
+    fi
     if ! running; then
-        say "disabled: the default site is Debian's (nginx is not running)"
+        say "disabled: $state (nginx is not running)"
         return 0
     fi
     nginx -s reload || fail "disabled, but nginx -s reload failed: the running workers keep the front until Nginx restarts"
-    say "disabled: the default site is Debian's"
+    say "disabled: $state"
 }
 
 case "${1:-}" in

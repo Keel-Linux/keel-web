@@ -1,6 +1,6 @@
-# keel-web: Debian's default site with Anubis in front of it (handbook
+# keel-web: the default site with Anubis in front of it (handbook
 # decisions 0030 and 0041, step 7). Linked from sites-enabled/ in place of
-# Debian's `default` while the anubis overlay is enabled, by
+# keel-web's `keel-default` while the anubis overlay is enabled, by
 # /usr/lib/keel/overlays/anubis/state.d/50keel-web, which keel spec apply
 # runs; never by hand, and never at installation.
 #
@@ -24,12 +24,16 @@
 # reached by works and no other host can be reached through it.
 #
 # Until keel renders sites of its own (0042), this is the one site Keel
-# Web serves: the content of Debian's default site, /var/www/html.
+# Web serves in the cloud modes: the pages of keel-default, the default
+# site of a simple installation, from /var/www/keel-default, with its 404
+# and 50x pages (on 443 too, for the errors Nginx answers itself) and no
+# server version. The two sites are never enabled together.
 
 server {
 	listen [::]:80 default_server;
 	listen 80 default_server;
 	server_name _;
+	server_tokens off;
 
 	location / {
 		return 301 https://$host$request_uri;
@@ -41,6 +45,7 @@ server {
 	listen 443 ssl default_server;
 	http2 on;
 	server_name _;
+	server_tokens off;
 
 	ssl_certificate /usr/local/share/ca-certificates/cert.crt;
 	ssl_certificate_key /etc/ssl/private/cert.key;
@@ -51,6 +56,12 @@ server {
 	ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384:DHE-RSA-CHACHA20-POLY1305';
 	ssl_prefer_server_ciphers off;
 
+	# Nginx answers here itself when Anubis is down or slow (502, 504):
+	# the default site's pages, not nginx's stock page.
+	root /var/www/keel-default;
+	error_page 404 /404.html;
+	error_page 500 502 503 504 /50x.html;
+
 	# TODO(Keel-Linux/tracker#51, decision 0042 tls.hsts): add
 	# Strict-Transport-Security once the confconsole Certificate screen has
 	# issued a CA's certificate through ACME; never over the self-signed one.
@@ -58,6 +69,14 @@ server {
 	# A tls-passthrough site of 0042 needs the stream front on port 443:
 	# then these two listen lines must go, and this server listens behind
 	# it on unix:/run/nginx/keel-https.sock (Keel-Linux/tracker#51).
+
+	location = /404.html {
+		internal;
+	}
+
+	location = /50x.html {
+		internal;
+	}
 
 	location / {
 		include /etc/nginx/snippets/keel-anubis.conf;
@@ -67,11 +86,23 @@ server {
 server {
 	listen unix:/run/nginx/keel-app.sock;
 	server_name _;
+	server_tokens off;
 	set_real_ip_from unix:;
 	real_ip_header X-Real-IP;
 
-	root /var/www/html;
-	index index.html index.htm index.nginx-debian.html;
+	root /var/www/keel-default;
+	index index.html;
+
+	error_page 404 /404.html;
+	error_page 500 502 503 504 /50x.html;
+
+	location = /404.html {
+		internal;
+	}
+
+	location = /50x.html {
+		internal;
+	}
 
 	location / {
 		try_files $uri $uri/ =404;
