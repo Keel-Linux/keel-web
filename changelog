@@ -1,3 +1,30 @@
+keel-web-19.0 (3) keel; urgency=low
+
+  * keel-web 0.2.0: a simple installation serves Keel Web's own default
+    site, /etc/nginx/sites-available/keel-default, in Debian's place
+    (handbook decision 0042): HTTPS on 443 with the machine's certificate
+    and HTTP on 80, IPv6 first and IPv4 on, HTTP/2, a placeholder page
+    saying no site is configured yet and where the operator configures
+    one, its own 404 and 50x pages, no server version, and /keel-health on
+    both schemes. On the image of release 2, Debian's default site served
+    an empty /var/www/html (nginx's bare 404) and nothing listened on 443.
+    The anubis state hook swaps that site and its front, so the two are
+    never enabled together.
+  * The usage screen says "Web: https://" in every mode: that is what the
+    site serves, and the keel banner takes the scheme of its Web line from
+    this file.
+  * The overlay no longer ships /var/www/html/index.html: the pages are the
+    package's. conf.d/main fails the build when keel-default is not
+    enabled, Debian's default site is, its file is gone, a page is
+    missing, or the usage screen does not list the site over HTTPS.
+  * tests/site.bats, which the new check "site / trixie" runs on a booted
+    trixie container with keel-web installed: nginx -t, the health check
+    on both schemes, the placeholder, the 404 page, TLS and HTTP/2, the
+    mode switch through the anubis state hook both ways, and a remove,
+    reinstall and purge of the package.
+
+ -- Marcos Méndez <mendez.foto@gmail.com>  Sat, 03 Oct 2026 02:00:00 +0000
+
 keel-web-19.0 (2) keel; urgency=low
 
   * The usage screen lists the site. Core's recipe ships a

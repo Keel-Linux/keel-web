@@ -2,7 +2,7 @@
 # Run by fab in the image chroot of the web layer, after the packages of
 # plan/main are in. It changes nothing: it fails the build when the image
 # is not what a simple installation of Keel Web starts from (handbook
-# decisions 0030 and 0041), reporting every problem it finds.
+# decisions 0030, 0041 and 0042), reporting every problem it finds.
 #
 # - No Anubis signing key. keel-overlay-anubis makes it on the machine, at
 #   the first start of anubis@keel.service; one in the image would be every
@@ -12,11 +12,18 @@
 #   find none.
 # - Coraza and Anubis off: anubis@keel.service not enabled, Coraza's module
 #   and configuration not linked into Nginx, the Anubis front of keel-web
-#   not linked; Debian's default site enabled. keel spec apply turns them
-#   on where the instance spec says so.
-# - A page for the default site, /var/www/html/index.html.
-# - A usage screen that lists the site (/etc/confconsole/services.txt of
-#   this recipe's overlay, over Core's).
+#   not linked. keel spec apply turns them on where the instance spec says
+#   so.
+# - keel-web's default site enabled in Debian's place, as its postinst
+#   leaves it: sites-enabled/keel-default linked to the package's file,
+#   Debian's sites-enabled/default gone and its sites-available/default
+#   kept (the purge of keel-web links it again). Only the links are
+#   checked, never nginx -t: the machine's certificate the site reads is
+#   made at the first boot, so the postinst leaves the check to then too.
+# - The pages of the default site, through /var/www/keel-default.
+# - A usage screen that lists the site over HTTPS (/etc/confconsole/
+#   services.txt of this recipe's overlay, over Core's), which is what the
+#   site serves and where the keel banner reads the scheme of its Web line.
 #
 # KEEL_CONF_ROOT is the tree to work on, empty (the chroot's /) in a build;
 # tests/image-conf.bats sets it to a scratch tree.
@@ -51,20 +58,30 @@ if present /etc/systemd/system/multi-user.target.wants/anubis@keel.service; then
     fatal "anubis@keel.service is enabled in the image"
 fi
 
-if ! present /etc/nginx/sites-enabled/default; then
-    fatal "Debian's default site is not enabled in the image"
+if [ "$(readlink "$root/etc/nginx/sites-enabled/keel-default" 2>/dev/null || true)" \
+        != /etc/nginx/sites-available/keel-default ]; then
+    fatal "keel-web's default site is not enabled in the image"
 fi
 
-# common's removelist deletes /var/www/html with Debian's page in it; the
-# overlay of this recipe puts Keel Web's there
-if [ ! -f "$root/var/www/html/index.html" ]; then
-    fatal "/var/www/html/index.html, the page of the default site, is not in the image"
+if present /etc/nginx/sites-enabled/default; then
+    fatal "Debian's default site is enabled in the image: keel-web's default site is the default server"
 fi
+
+if [ ! -f "$root/etc/nginx/sites-available/default" ]; then
+    fatal "/etc/nginx/sites-available/default is not in the image: the purge of keel-web puts Debian's default site back"
+fi
+
+# /var/www/keel-default is the postinst's link to /usr/share/keel-web
+for page in index.html 404.html 50x.html; do
+    if [ ! -f "$root/var/www/keel-default/$page" ]; then
+        fatal "/var/www/keel-default/$page, a page of the default site, is not in the image"
+    fi
+done
 
 # Core's recipe ships a usage screen of Webmin and SSH only; the overlay of
 # this recipe replaces it with one that lists the site first
-if ! grep -qE '^Web: +http://' "$root/etc/confconsole/services.txt" 2>/dev/null; then
-    fatal "/etc/confconsole/services.txt does not list the site: the usage screen would show Webmin and SSH only"
+if ! grep -qE '^Web: +https://' "$root/etc/confconsole/services.txt" 2>/dev/null; then
+    fatal "/etc/confconsole/services.txt does not list the site over HTTPS: the usage screen and the banner would be wrong"
 fi
 
 exit "$failed"
