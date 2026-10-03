@@ -33,11 +33,8 @@ jobs:
     with:
       appliance: web
       # A layer on core; the workflow checks this against the parent the
-      # published manifest records.
+      # published manifest records. The web layer is published (the
+      # maintainer's attended release of 2026-10-02), so allow_unpublished
+      # is gone: the workflow makes it an error once the mirror answers.
       parent: core
-      # The web layer has never been published: the first one is the
-      # maintainer's attended release of this recipe. Until then the job
-      # passes saying so, in its summary; once the mirror answers for the
-      # web layer this input is an error and must be removed.
-      allow_unpublished: true
       timeout: 60

@@ -35,10 +35,10 @@ As for keel-core (its COVERAGE.md): the layer boots in an LXC container,
 its first boot completes headless from an instance spec, and the machine
 matches the spec. The boot test (`tests/boot-test.sh`, its library and its
 bats file, the same as keel-core's) runs on the self-hosted runner against
-the layers the mirror publishes. The web layer has not been published yet,
-so `test-appliance.yml` runs with `allow_unpublished: true` and passes
-saying so; the evidence for this branch is its isolated build and the run
-on the built image (`tests/README.md`, "The package on a built image"),
+the layers the mirror publishes: the web layer since the maintainer's
+attended release of 2026-10-02. What boots there is the published layer,
+never this branch; the evidence for a branch is its isolated build and the
+run on the built image (`tests/README.md`, "The package on a built image"),
 and, for the package on a machine, `tests/site.bats` in the check
 `site / trixie`.
 
@@ -61,9 +61,9 @@ raised.
 
 `.github/workflows/tests.yml` has two jobs, as keel-core's: `tests` calls
 `test-shell.yml` with threshold 100 (the check `tests / coverage`), and
-`appliance` calls `test-appliance.yml` with `appliance: web`, `parent: core`
-and `allow_unpublished: true` (the check `appliance / boot-published-layer`),
-gated on the organization variable `KEEL_LXC_RUNNER`.
+`appliance` calls `test-appliance.yml` with `appliance: web` and
+`parent: core` (the check `appliance / boot-published-layer`), gated on
+the organization variable `KEEL_LXC_RUNNER`.
 `.github/workflows/packages.yml` builds, lints and tests the package in a
 trixie system container through `lxc-trixie.yml` (the check
 `build / trixie`), then installs it with Nginx and common's nginx and
@@ -72,14 +72,12 @@ anubis overlays on a booted trixie system container and runs
 
 ## Plan
 
-1. Remove `allow_unpublished` once the maintainer's attended release
-   publishes the web layer; the workflow then makes it an error.
-2. The default site and its front are the one site Keel Web serves until
+1. The default site and its front are the one site Keel Web serves until
    keel renders the sites of decision 0042 (Keel-Linux/tracker#51); then
    `keel-default`, `default-anubis` and the hook give way to keel's
    `keel-default.conf` and `protect.anubis` per site, and HSTS comes with
    a CA's certificate.
-3. The image run of `tests/README.md` is to be repeated on an image built
+2. The image run of `tests/README.md` is to be repeated on an image built
    from this branch: the placeholder on both schemes in a simple
    installation, the front after `keel spec apply --system` moves the spec
    to a cloud mode, and the placeholder back.
