@@ -161,14 +161,14 @@ nothing_at() {
     run body -i "http://$HOST/"
     [[ "$output" == *"Content-Type: text/html"* ]]
     [[ "$output" == *"Keel Web"* ]]
-    [[ "$output" == *"no site"* ]]
+    [[ "$output" == *"No site is configured"* ]]
     [[ "$output" == *"instance.yaml"* ]]
 }
 
 @test "the placeholder is served at / over HTTPS with the machine's certificate" {
     [ "$(code "https://$HOST/")" = 200 ]
     run body "https://$HOST/"
-    [[ "$output" == *"no site"* ]]
+    [[ "$output" == *"No site is configured"* ]]
     # the certificate Nginx serves is cert.pem's: cert.crt verifies it
     local cn
     cn="$(openssl x509 -in "$CERT" -noout -subject -nameopt sep_multiline,utf8 | awk -F= '/CN=/ { print $2 }')"
@@ -188,11 +188,16 @@ nothing_at() {
     run ! curl -sk --tlsv1.1 --tls-max 1.1 -o /dev/null "https://$HOST/"
 }
 
+# the Server header, as curl prints it, lower-cased and without its CR
+server_header() {
+    curl -sk -I "$1" | grep -i '^server:' | tr -d '\r' | tr '[:upper:]' '[:lower:]'
+}
+
 @test "no server version in the headers" {
-    run curl -sk -I "http://$HOST/"
-    [[ "$output" == *$'\nServer: nginx\r'* ]]
-    run curl -sk -I "https://$HOST/"
-    [[ "$output" == *$'\nServer: nginx\r'* ]]
+    run server_header "http://$HOST/"
+    [ "$output" = "server: nginx" ]
+    run server_header "https://$HOST/"
+    [ "$output" = "server: nginx" ]
 }
 
 @test "an unknown path answers the site's own 404 page, naming no version" {
@@ -259,7 +264,7 @@ nothing_at() {
     [ "$status" -eq 0 ]
     eventually_code 200 "http://$HOST/"
     run body "http://$HOST/"
-    [[ "$output" == *"no site"* ]]
+    [[ "$output" == *"No site is configured"* ]]
     [ "$(code "https://$HOST/keel-health")" = 204 ]
 }
 
