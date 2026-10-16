@@ -35,3 +35,7 @@ Description: Keel Web, the base of every Keel web appliance
  hook that keel spec apply runs when the anubis overlay is turned on or
  off, which puts the front in the default site's place and back. Coraza and
  Anubis are enabled by keel from the instance spec, never by this package.
+ .
+ Both sites include /etc/nginx/keel-default.d/*.conf, where a stack layer
+ (LNMP, LNPP) puts its location blocks: a route there is served by the
+ default site and, in the cloud modes, behind Anubis.

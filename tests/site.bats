@@ -275,6 +275,45 @@ server_header() {
     site_linked
 }
 
+# Decision 0059, point 4: a route that a stack puts in keel-default.d is
+# served by the default site on both schemes, and behind Anubis by the
+# server on keel-app.sock, which Anubis proxies to.
+ROUTE=/etc/nginx/keel-default.d/50-site-test.conf
+
+put_route() {
+    printf 'location = /keel-route-test {\n\treturn 200 "route\\n";\n}\n' > "$ROUTE"
+    nginx -t
+    systemctl reload nginx.service
+}
+
+@test "a route in keel-default.d is served by the default site on both schemes" {
+    put_route
+    eventually_code 200 "http://$HOST/keel-route-test"
+    [ "$(body "http://$HOST/keel-route-test")" = route ]
+    [ "$(body "https://$HOST/keel-route-test")" = route ]
+    rm -f "$ROUTE"
+    systemctl reload nginx.service
+    eventually_code 404 "http://$HOST/keel-route-test"
+}
+
+@test "behind Anubis, a route in keel-default.d is served on keel-app.sock" {
+    put_route
+    run "$HOOK" enabled
+    [ "$status" -eq 0 ]
+    front_linked
+    for i in $(seq 50); do
+        [ -S /run/nginx/keel-app.sock ] && break
+        sleep 0.1
+    done
+    run curl -s --unix-socket /run/nginx/keel-app.sock http://keel/keel-route-test
+    [ "$output" = route ]
+    run "$HOOK" disabled
+    [ "$status" -eq 0 ]
+    site_linked
+    rm -f "$ROUTE"
+    systemctl reload nginx.service
+}
+
 # remove and reinstall: the pages leave with the package, so its sites
 # leave sites-enabled and Debian's default site comes back; a reinstall
 # puts the default site in again

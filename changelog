@@ -1,3 +1,11 @@
+keel-web-19.0 (6) keel; urgency=low
+
+  * keel-web 0.3.0: the include directory /etc/nginx/keel-default.d/ for
+    the routes of the stack layers LNMP and LNPP (handbook decision 0059).
+    19.0-5 is published, so this build needs its own revision.
+
+ -- KeelLinux maintainers <admin@keellinux.org>  Fri, 16 Oct 2026 07:00:00 +0000
+
 keel-web-19.0 (5) keel; urgency=low
 
   * Release of 2026-10-09 (step 12): rebuilt on the lean Core 19.0-10
