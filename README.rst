@@ -35,6 +35,14 @@ the state hook of ``keel-web`` puts ``/etc/nginx/sites-available/default-anubis`
 (the same pages, behind Anubis) in its place, and puts ``keel-default``
 back when it is turned off; the two are never enabled together.
 
+A stack layer adds its routes without a change to the two sites
+(handbook decision 0059). Both include
+``/etc/nginx/keel-default.d/*.conf``: the default site in its server, the
+front in the server behind Anubis (``unix:/run/nginx/keel-app.sock``). A
+``location`` block in a file there is served in the simple mode and, in
+the cloud modes, behind Anubis. LNMP and LNPP put their check page,
+``/keel-check/``, there. The directory ships empty.
+
 Both sites serve HTTPS on 443 with the machine's certificate, the
 ``default`` certificate of decision 0042 as ``turnkey-make-ssl-cert
 --default`` writes it (``/etc/ssl/private/cert.pem``, ``cert.key`` and
