@@ -275,7 +275,7 @@ server_header() {
     site_linked
 }
 
-# Decision 0058, point 4: a route that a stack puts in keel-default.d is
+# Decision 0059, point 4: a route that a stack puts in keel-default.d is
 # served by the default site on both schemes, and behind Anubis by the
 # server on keel-app.sock, which Anubis proxies to.
 ROUTE=/etc/nginx/keel-default.d/50-site-test.conf

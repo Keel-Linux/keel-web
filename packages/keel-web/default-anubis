@@ -104,7 +104,7 @@ server {
 		internal;
 	}
 
-	# The routes of a stack layer (LNMP, LNPP: handbook decision 0058),
+	# The routes of a stack layer (LNMP, LNPP: handbook decision 0059),
 	# each a location block in a file of /etc/nginx/keel-default.d/,
 	# included here, behind Anubis, and in the default site (keel-default).
 	include /etc/nginx/keel-default.d/*.conf;

@@ -68,7 +68,7 @@ server {
 	error_page 404 /404.html;
 	error_page 500 502 503 504 /50x.html;
 
-	# The routes of a stack layer (LNMP, LNPP: handbook decision 0058),
+	# The routes of a stack layer (LNMP, LNPP: handbook decision 0059),
 	# each a location block in a file of /etc/nginx/keel-default.d/,
 	# included here and in the server behind Anubis (default-anubis).
 	include /etc/nginx/keel-default.d/*.conf;

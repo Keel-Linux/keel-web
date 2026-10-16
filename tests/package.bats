@@ -507,7 +507,7 @@ machine_cert() {
     [ "$output" = 0 ]
 }
 
-# Decision 0058, point 4: a stack layer (LNMP, LNPP) puts its location
+# Decision 0059, point 4: a stack layer (LNMP, LNPP) puts its location
 # blocks in /etc/nginx/keel-default.d/, which the default site includes and
 # the server behind Anubis includes too, so a route works in the simple
 # mode and in the cloud modes. The front on 443 has no include: it hands
