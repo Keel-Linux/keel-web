@@ -15,6 +15,7 @@ PKG = debian/keel-web
 	dh $@
 
 execute_after_dh_auto_install:
+	install -d -m 0755 $(PKG)/etc/nginx/keel-default.d
 	install -D -m 0644 manifest.yaml $(PKG)/usr/share/keel/appliances/web.yaml
 	install -D -m 0644 keel-default $(PKG)/etc/nginx/sites-available/keel-default
 	install -D -m 0644 default-anubis $(PKG)/etc/nginx/sites-available/default-anubis

@@ -1,3 +1,15 @@
+keel-web (0.3.0) trixie; urgency=medium
+
+  * The default site and the server behind Anubis include
+    /etc/nginx/keel-default.d/*.conf, and the package ships the directory
+    empty (handbook decision 0058, point 4). A stack layer (LNMP, LNPP)
+    puts its location blocks there. Thus a route is served in the simple
+    mode and behind Anubis in the cloud modes, and the two sites stay
+    conffiles of this package. The front on 443 has no include: it hands
+    every request to Anubis.
+
+ -- KeelLinux maintainers <admin@keellinux.org>  Fri, 16 Oct 2026 07:00:00 +0000
+
 keel-web (0.2.0) trixie; urgency=medium
 
   * The default site of a simple installation is keel-web's,

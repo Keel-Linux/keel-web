@@ -507,6 +507,31 @@ machine_cert() {
     [ "$output" = 0 ]
 }
 
+# Decision 0058, point 4: a stack layer (LNMP, LNPP) puts its location
+# blocks in /etc/nginx/keel-default.d/, which the default site includes and
+# the server behind Anubis includes too, so a route works in the simple
+# mode and in the cloud modes. The front on 443 has no include: it hands
+# every request to Anubis, which reaches the routes through keel-app.sock.
+@test "routes: the include directory is shipped, empty, a directory of root's" {
+    run listed "etc/nginx/keel-default.d/"
+    [ "$status" -eq 0 ]
+    [[ "$output" == "drwxr-xr-x root/root "* ]]
+    run bash -c "dpkg-deb -c '$DEB' | awk '{print \$6}' | grep '^./etc/nginx/keel-default.d/.'"
+    [ "$output" = "" ]
+}
+
+@test "routes: the default site includes keel-default.d once, in its server" {
+    run grep -c -E $'^\tinclude /etc/nginx/keel-default.d/\*\.conf;$' "$PACKAGE_DIR/keel-default"
+    [ "$output" = 1 ]
+}
+
+@test "routes: behind Anubis, the server on keel-app.sock includes keel-default.d, the front does not" {
+    run grep -c 'include /etc/nginx/keel-default.d/' "$PACKAGE_DIR/default-anubis"
+    [ "$output" = 1 ]
+    run awk '/listen unix:\/run\/nginx\/keel-app.sock;/,0' "$PACKAGE_DIR/default-anubis"
+    [[ "$output" == *$'\tinclude /etc/nginx/keel-default.d/*.conf;'* ]]
+}
+
 @test "default site: the placeholder pages, from /var/www/keel-default, with its own 404 and 50x" {
     grep -q $'^\troot /var/www/keel-default;$' "$PACKAGE_DIR/keel-default"
     grep -q $'^\tindex index.html;$' "$PACKAGE_DIR/keel-default"
