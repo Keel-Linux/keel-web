@@ -43,6 +43,13 @@ front in the server behind Anubis (``unix:/run/nginx/keel-app.sock``). A
 the cloud modes, behind Anubis. LNMP and LNPP put their check page,
 ``/keel-check/``, there. The directory ships empty.
 
+The front limits a request body to 1 MB (``client_max_body_size 1m``)
+and includes ``/etc/nginx/keel-front.d/*.conf`` in its server on 443,
+after the limit. An application that takes uploads sets a larger limit
+in a file there. The directory ships empty. Coraza reads no file of an
+upload as an argument (keel-overlay-coraza 0.1.4), so the size of an
+upload does not change the memory of a worker.
+
 Both sites serve HTTPS on 443 with the machine's certificate, the
 ``default`` certificate of decision 0042 as ``turnkey-make-ssl-cert
 --default`` writes it (``/etc/ssl/private/cert.pem``, ``cert.key`` and

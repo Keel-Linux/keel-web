@@ -63,7 +63,7 @@ listed() {
     # Anubis's pass-challenge through when the site is opened by IP and
     # names the rule it blocks with in its audit log (0.1.1: its state
     # hook, gzip answers whole)
-    [ "$output" = "anubis (>= 1.27.0-0+keel3), keel (>= 0.15.0), keel-core, keel-overlay-anubis, keel-overlay-coraza (>= 0.1.2), keel-overlay-nginx" ]
+    [ "$output" = "anubis (>= 1.27.0-0+keel3), keel (>= 0.15.0), keel-core, keel-overlay-anubis, keel-overlay-coraza (>= 0.1.4), keel-overlay-nginx" ]
 }
 
 @test "the manifest is installed as /usr/share/keel/appliances/web.yaml, 0644 root" {
@@ -530,6 +530,35 @@ machine_cert() {
     [ "$output" = 1 ]
     run awk '/listen unix:\/run\/nginx\/keel-app.sock;/,0' "$PACKAGE_DIR/default-anubis"
     [[ "$output" == *$'\tinclude /etc/nginx/keel-default.d/*.conf;'* ]]
+}
+
+# Keel-Linux/keel-web#15. The front on 443 limits the body to 1 MB by the
+# default of Nginx, and says so. An application that takes uploads raises it
+# with a file in /etc/nginx/keel-front.d/, which the front includes in its
+# server. The directory ships empty. The front hands the body to Anubis,
+# so the limit is the only bound before Anubis, and a layer sets it with
+# the size it needs.
+@test "front: the include directory keel-front.d is shipped, empty, a directory of root's" {
+    run listed "etc/nginx/keel-front.d/"
+    [ "$status" -eq 0 ]
+    [[ "$output" == "drwxr-xr-x root/root "* ]]
+    run bash -c "dpkg-deb -c '$DEB' | awk '{print \$6}' | grep '^./etc/nginx/keel-front.d/.'"
+    [ "$output" = "" ]
+}
+
+@test "front: the server on 443 limits the body to 1m and includes keel-front.d, after the limit" {
+    run awk '/listen \[::\]:443 ssl default_server;/,/listen unix:/' "$PACKAGE_DIR/default-anubis"
+    [[ "$output" == *$'\tclient_max_body_size 1m;'* ]]
+    [[ "$output" == *$'\tinclude /etc/nginx/keel-front.d/*.conf;'* ]]
+    # the limit stands first, so a file of the directory can set its own
+    [[ "$output" == *"client_max_body_size 1m;"*"keel-front.d"* ]]
+}
+
+@test "front: the server behind Anubis and the default site do not include keel-front.d" {
+    run awk '/listen unix:\/run\/nginx\/keel-app.sock;/,0' "$PACKAGE_DIR/default-anubis"
+    [[ "$output" != *keel-front.d* ]]
+    run grep -c 'keel-front.d' "$PACKAGE_DIR/keel-default"
+    [ "$output" = 0 ]
 }
 
 @test "default site: the placeholder pages, from /var/www/keel-default, with its own 404 and 50x" {

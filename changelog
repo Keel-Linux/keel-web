@@ -1,3 +1,11 @@
+keel-web-19.0 (7) keel; urgency=low
+
+  * keel-web 0.3.1: the front site writes its body limit and includes
+    /etc/nginx/keel-front.d/ (Keel-Linux/keel-web#15). 19.0-6 is
+    published, so this build needs its own revision.
+
+ -- KeelLinux maintainers <admin@keellinux.org>  Sun, 18 Oct 2026 12:00:00 +0000
+
 keel-web-19.0 (6) keel; urgency=low
 
   * keel-web 0.3.0: the include directory /etc/nginx/keel-default.d/ for
