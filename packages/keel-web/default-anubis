@@ -47,14 +47,15 @@ server {
 	server_name _;
 	server_tokens off;
 
-	# The front hands a request body to Anubis whole, so this limit is the
-	# only bound before Anubis. It is the default of Nginx, written here so
-	# that it is seen (Keel-Linux/keel-web#15). An application that takes
-	# uploads sets a larger one in a file of /etc/nginx/keel-front.d/, as
-	# the application layer of WordPress does. Coraza (keel-overlay-coraza
-	# 0.1.4) reads no upload file as an argument, so the size of an upload
-	# does not change the memory of a worker.
-	client_max_body_size 1m;
+	# The body limit of the front is the default of Nginx, 1 MB, and it is
+	# the only bound before Anubis, because the front hands the request body
+	# to Anubis whole. An application that takes uploads sets a larger
+	# limit with one client_max_body_size in a file of
+	# /etc/nginx/keel-front.d/, as the application layer of WordPress does
+	# (Keel-Linux/keel-web#15). This file sets none itself: Nginx refuses a
+	# second client_max_body_size in the same server. Coraza
+	# (keel-overlay-coraza 0.1.4) reads no upload file as an argument, so
+	# the size of an upload does not change the memory of a worker.
 	include /etc/nginx/keel-front.d/*.conf;
 
 	ssl_certificate /usr/local/share/ca-certificates/cert.crt;

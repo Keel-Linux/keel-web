@@ -1,3 +1,15 @@
+keel-web (0.3.2) trixie; urgency=medium
+
+  * The front site on 443 sets no body limit of its own. 0.3.1 set
+    client_max_body_size 1m there, and Nginx refuses a second
+    client_max_body_size in the same server, so a file of keel-front.d
+    could not set the limit: the Anubis state hook failed with "directive
+    is duplicate" and rolled back (found by the release test of Keel
+    WordPress). The limit stays 1 MB, the default of Nginx, until a file
+    of /etc/nginx/keel-front.d/ sets another.
+
+ -- KeelLinux maintainers <admin@keellinux.org>  Sun, 18 Oct 2026 14:30:00 +0000
+
 keel-web (0.3.1) trixie; urgency=medium
 
   * The front site on 443 writes its body limit, client_max_body_size 1m,

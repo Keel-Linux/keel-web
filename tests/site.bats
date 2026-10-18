@@ -314,6 +314,31 @@ put_route() {
     systemctl reload nginx.service
 }
 
+@test "behind Anubis, the front refuses a body of more than 1 MB, and a file in keel-front.d raises the limit" {
+    local file=/etc/nginx/keel-front.d/zz-keel-web-test.conf head=/tmp/keel-web-body.bin
+    head -c 2097152 /dev/zero > "$head"
+    run "$HOOK" enabled
+    [ "$status" -eq 0 ]
+    front_linked
+    run curl -sk -o /dev/null -w '%{http_code}' --data-binary "@$head" "https://$HOST/"
+    [ "$output" = 413 ]
+    # one limit in the file, and the front sets none: Nginx accepts it
+    echo 'client_max_body_size 8m;' > "$file"
+    nginx -t
+    systemctl reload nginx.service
+    for i in $(seq 50); do
+        run curl -sk -o /dev/null -w '%{http_code}' --data-binary "@$head" "https://$HOST/"
+        [ "$output" != 413 ] && break
+        sleep 0.2
+    done
+    # the front took the body; Anubis is not running here, so the answer is 502
+    [ "$output" = 502 ]
+    rm -f "$file" "$head"
+    run "$HOOK" disabled
+    [ "$status" -eq 0 ]
+    systemctl reload nginx.service
+}
+
 # remove and reinstall: the pages leave with the package, so its sites
 # leave sites-enabled and Debian's default site comes back; a reinstall
 # puts the default site in again
