@@ -62,8 +62,9 @@ listed() {
     # leaves it (Keel-Linux/anubis#3); keel-overlay-coraza 0.1.2 lets
     # Anubis's pass-challenge through when the site is opened by IP and
     # names the rule it blocks with in its audit log (0.1.1: its state
-    # hook, gzip answers whole)
-    [ "$output" = "anubis (>= 1.27.0-0+keel3), keel (>= 0.15.0), keel-core, keel-overlay-anubis, keel-overlay-coraza (>= 0.1.4), keel-overlay-nginx" ]
+    # hook, gzip answers whole); keel-overlay-anubis 0.1.1 passes the
+    # Upgrade header of a WebSocket (Keel-Linux/common#58)
+    [ "$output" = "anubis (>= 1.27.0-0+keel3), keel (>= 0.15.0), keel-core, keel-overlay-anubis (>= 0.1.1), keel-overlay-coraza (>= 0.1.4), keel-overlay-nginx" ]
 }
 
 @test "the manifest is installed as /usr/share/keel/appliances/web.yaml, 0644 root" {

@@ -1,3 +1,11 @@
+keel-web-19.0 (9) keel; urgency=low
+
+  * keel-web 0.3.3: it needs keel-overlay-anubis 0.1.1, so a WebSocket
+    passes the Anubis front (Keel-Linux/common#58). 19.0-8 is a testing
+    build.
+
+ -- KeelLinux maintainers <admin@keellinux.org>  Sun, 18 Oct 2026 17:30:00 +0000
+
 keel-web-19.0 (8) keel; urgency=low
 
   * keel-web 0.3.2: the front site includes /etc/nginx/keel-front.d/ for the

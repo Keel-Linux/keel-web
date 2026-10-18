@@ -16,7 +16,7 @@ Depends:
  anubis (>= 1.27.0-0+keel3),
  keel (>= 0.15.0),
  keel-core,
- keel-overlay-anubis,
+ keel-overlay-anubis (>= 0.1.1),
  keel-overlay-coraza (>= 0.1.4),
  keel-overlay-nginx,
  ${misc:Depends},

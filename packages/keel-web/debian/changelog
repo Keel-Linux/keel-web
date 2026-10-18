@@ -1,3 +1,12 @@
+keel-web (0.3.3) trixie; urgency=medium
+
+  * It depends on keel-overlay-anubis (>= 0.1.1), whose snippet passes the
+    Upgrade and Connection headers of a WebSocket through Anubis
+    (Keel-Linux/common#58). Before, /websocket answered 400 through the
+    front, so the bus of Odoo did not work in the cloud modes.
+
+ -- KeelLinux maintainers <admin@keellinux.org>  Sun, 18 Oct 2026 17:30:00 +0000
+
 keel-web (0.3.2) trixie; urgency=medium
 
   * The front site on 443 sets no body limit of its own. 0.3.1 set
