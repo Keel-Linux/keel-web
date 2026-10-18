@@ -533,7 +533,7 @@ machine_cert() {
 }
 
 # Keel-Linux/keel-web#15. The front on 443 limits the body to 1 MB by the
-# default of Nginx, and says so. An application that takes uploads raises it
+# default of Nginx. An application that takes uploads raises it
 # with a file in /etc/nginx/keel-front.d/, which the front includes in its
 # server. The directory ships empty. The front hands the body to Anubis,
 # so the limit is the only bound before Anubis, and a layer sets it with
@@ -546,12 +546,14 @@ machine_cert() {
     [ "$output" = "" ]
 }
 
-@test "front: the server on 443 limits the body to 1m and includes keel-front.d, after the limit" {
+@test "front: the server on 443 includes keel-front.d and sets no body limit of its own" {
     run awk '/listen \[::\]:443 ssl default_server;/,/listen unix:/' "$PACKAGE_DIR/default-anubis"
-    [[ "$output" == *$'\tclient_max_body_size 1m;'* ]]
     [[ "$output" == *$'\tinclude /etc/nginx/keel-front.d/*.conf;'* ]]
-    # the limit stands first, so a file of the directory can set its own
-    [[ "$output" == *"client_max_body_size 1m;"*"keel-front.d"* ]]
+    # Nginx refuses a second client_max_body_size in the same server, so a
+    # file of keel-front.d could not set the limit if the site set it. The
+    # default of Nginx, 1m, stands until a file sets another.
+    run bash -c "awk '/listen \[::\]:443 ssl default_server;/,/listen unix:/' '$PACKAGE_DIR/default-anubis' | grep -v '^[[:space:]]*#' | grep -c client_max_body_size"
+    [ "$output" = 0 ]
 }
 
 @test "front: the server behind Anubis and the default site do not include keel-front.d" {
