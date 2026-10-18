@@ -1,3 +1,14 @@
+keel-web (0.3.1) trixie; urgency=medium
+
+  * The front site on 443 writes its body limit, client_max_body_size 1m,
+    and includes /etc/nginx/keel-front.d/*.conf after it. The package
+    ships the directory empty. An application that takes uploads sets a
+    larger limit in a file there (Keel-Linux/keel-web#15). It depends on
+    keel-overlay-coraza 0.1.4, which reads no upload file as an argument:
+    with that rule set a 32 MiB upload costs a worker about 10 MiB.
+
+ -- KeelLinux maintainers <admin@keellinux.org>  Sun, 18 Oct 2026 12:00:00 +0000
+
 keel-web (0.3.0) trixie; urgency=medium
 
   * The default site and the server behind Anubis include

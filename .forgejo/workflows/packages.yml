@@ -97,7 +97,7 @@ jobs:
         # the stand-ins: the dependencies of keel-web and of the anubis
         # overlay that this suite does not exercise
         for standin in keel:0.15.0 keel-core:0.1.0 anubis:1.27.0-0+keel3 \
-                       keel-overlay-coraza:0.1.2; do
+                       keel-overlay-coraza:0.1.4; do
           name="${standin%%:*}"
           version="${standin#*:}"
           printf 'Section: misc\nPriority: optional\nStandards-Version: 4.7.2\nPackage: %s\nVersion: %s\nArchitecture: all\nDescription: stand-in for the site test of keel-web\n not the real package; see .github/workflows/packages.yml of Keel-Linux/keel-web\n' \
