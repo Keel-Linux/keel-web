@@ -76,9 +76,10 @@ jobs:
       download: keel-web-deb
       download-dir: dist
       run: |
-        # common's 19.x of 2026-10-02: keel-overlay-nginx 0.1.0 and
-        # keel-overlay-anubis, the two overlays whose files the sites read
-        COMMON_COMMIT=bc2c53e08ccdd810898534c080001793de86c41e
+        # common's 19.x of 2026-10-18 (the merge of common#62):
+        # keel-overlay-nginx and keel-overlay-anubis 0.1.1, the two overlays
+        # whose files the sites read
+        COMMON_COMMIT=f2318ebce1b0672ae903ecfd23f1126d90c644d4
         apt-get update -qq
         apt-get install -y -qq --no-install-recommends \
           ca-certificates git build-essential debhelper equivs bats curl \
