@@ -1,3 +1,13 @@
+keel-web (0.3.4) trixie; urgency=medium
+
+  * The composition carries the syncthing overlay (handbook decision 0050,
+    step 4): the package is in every image and the service runs in the
+    cloud modes, where a database pair exists for it to replicate the
+    state an application declares (one Syncthing folder per
+    state.replicate path). Disabled in simple, like coraza and anubis.
+
+ -- KeelLinux maintainers <admin@keellinux.org>  Sat, 24 Oct 2026 12:00:00 +0000
+
 keel-web (0.3.3) trixie; urgency=medium
 
   * It depends on keel-overlay-anubis (>= 0.1.1), whose snippet passes the

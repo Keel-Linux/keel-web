@@ -23,7 +23,8 @@
 # of them running, and what they do is proven in common's "web" job and on
 # the built image (tests/README.md, "The package on a built image"); so
 # behind the front port 443 answers 502 here, which is enough to see that
-# the front took it. The machine's certificate is made the way
+# the front took it. keel-overlay-syncthing is an equivs stand-in too: the
+# site suite exercises none of it. The machine's certificate is made the way
 # turnkey-make-ssl-cert --default lays it out, since keel-host-keys does
 # not run here. What keel spec apply does with the manifest, turning Coraza
 # and Anubis on and off from it, is the image run's.
@@ -98,7 +99,7 @@ jobs:
         # the stand-ins: the dependencies of keel-web and of the anubis
         # overlay that this suite does not exercise
         for standin in keel:0.15.0 keel-core:0.1.0 anubis:1.27.0-0+keel3 \
-                       keel-overlay-coraza:0.1.4; do
+                       keel-overlay-coraza:0.1.4 keel-overlay-syncthing:0.1.0; do
           name="${standin%%:*}"
           version="${standin#*:}"
           printf 'Section: misc\nPriority: optional\nStandards-Version: 4.7.2\nPackage: %s\nVersion: %s\nArchitecture: all\nDescription: stand-in for the site test of keel-web\n not the real package; see .github/workflows/packages.yml of Keel-Linux/keel-web\n' \

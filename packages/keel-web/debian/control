@@ -19,12 +19,15 @@ Depends:
  keel-overlay-anubis (>= 0.1.1),
  keel-overlay-coraza (>= 0.1.4),
  keel-overlay-nginx,
+ keel-overlay-syncthing,
  ${misc:Depends},
 Description: Keel Web, the base of every Keel web appliance
  The appliance manifest of Keel Web (handbook decisions 0030 and 0041),
  installed as /usr/share/keel/appliances/web.yaml: Keel Core plus the
- nginx, coraza and anubis overlays, Nginx alone in a simple installation
- and the three of them in the cloud modes.
+ nginx, coraza, anubis and syncthing overlays. Nginx runs in every mode;
+ coraza and anubis run in the cloud modes; the syncthing package is in
+ every image and its service runs in the cloud modes, where a database
+ pair exists for it to replicate the state of an application (0050).
  .
  It also ships the default site of a simple installation,
  /etc/nginx/sites-available/keel-default (HTTP and HTTPS with the machine's
