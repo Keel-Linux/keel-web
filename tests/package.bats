@@ -53,7 +53,7 @@ listed() {
     [ "$output" = $'Package: keel-web\nArchitecture: all' ]
 }
 
-@test "it depends on Core, the three Web overlays and the keel that runs state hooks" {
+@test "it depends on Core, the four Web overlays and the keel that runs state hooks" {
     run dpkg-deb -f "$DEB" Depends
     [ "$status" -eq 0 ]
     # anubis 1.27.0-0+keel2 serves the challenge to a client without gzip
@@ -64,7 +64,7 @@ listed() {
     # names the rule it blocks with in its audit log (0.1.1: its state
     # hook, gzip answers whole); keel-overlay-anubis 0.1.1 passes the
     # Upgrade header of a WebSocket (Keel-Linux/common#58)
-    [ "$output" = "anubis (>= 1.27.0-0+keel3), keel (>= 0.15.0), keel-core, keel-overlay-anubis (>= 0.1.1), keel-overlay-coraza (>= 0.1.4), keel-overlay-nginx" ]
+    [ "$output" = "anubis (>= 1.27.0-0+keel3), keel (>= 0.15.0), keel-core, keel-overlay-anubis (>= 0.1.1), keel-overlay-coraza (>= 0.1.4), keel-overlay-nginx, keel-overlay-syncthing" ]
 }
 
 @test "the manifest is installed as /usr/share/keel/appliances/web.yaml, 0644 root" {
@@ -745,7 +745,12 @@ machine_cert() {
     [ "$output" = "{'simple': 'disabled', 'cloud_simple': 'enabled', 'cloud_advanced': 'enabled'}" ]
 }
 
-@test "manifest: exactly the three overlays of Web, and nothing else of its own" {
+@test "manifest: syncthing is disabled in simple and enabled in the cloud modes (0050)" {
+    run manifest 'm["overlays"]["syncthing"]'
+    [ "$output" = "{'simple': 'disabled', 'cloud_simple': 'enabled', 'cloud_advanced': 'enabled'}" ]
+}
+
+@test "manifest: exactly the four overlays of Web, and nothing else of its own" {
     run manifest '(sorted(m["overlays"]), sorted(set(m) - {"manifest_version", "kind", "name", "title", "summary", "base", "overlays"}))'
-    [ "$output" = "(['anubis', 'coraza', 'nginx'], [])" ]
+    [ "$output" = "(['anubis', 'coraza', 'nginx', 'syncthing'], [])" ]
 }
