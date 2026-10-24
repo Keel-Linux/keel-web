@@ -1,3 +1,13 @@
+keel-web-19.0 (10) keel; urgency=low
+
+  * Stable 1, the first stable release (handbook docs/releases/stable-1-plan.md).
+    The image is built on the stable track: it reads trixie of
+    archive.keellinux.org and not trixie-testing. It carries keel 0.23.49.
+    The package keel-web is 0.3.3. This branch starts before the packaging of
+    keel-web 0.3.4, which depends on the syncthing overlay.
+
+ -- KeelLinux maintainers <admin@keellinux.org>  Sat, 24 Oct 2026 18:05:00 +0000
+
 keel-web-19.0 (9) keel; urgency=low
 
   * keel-web 0.3.3: it needs keel-overlay-anubis 0.1.1, so a WebSocket
