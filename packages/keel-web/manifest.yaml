@@ -12,3 +12,13 @@ overlays:
   # package is in every image; keel spec apply enables the service in the
   # cloud modes, where a pair exists, and keel renders the folders
   syncthing: {simple: disabled, cloud_simple: enabled, cloud_advanced: enabled}
+# state: the site content the operator or an application layer puts under
+# /var/www/keel-default (0050, 0068). The postinst links it to the
+# package's default pages; a layer or an operator replaces the link with
+# its own content. On a database pair Syncthing replicates the directory,
+# send-only on the primary and receive-only on the replica. An application
+# that inherits web adds its own paths beside this one (WordPress: uploads,
+# themes, plugins, languages).
+state:
+  replicate:
+    - /var/www/keel-default
