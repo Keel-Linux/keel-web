@@ -1,3 +1,33 @@
+keel-web (0.3.6) trixie; urgency=medium
+
+  * The manifest declares state.replicate with
+    /var/www/keel-default (handbook decision 0068). On a database
+    pair Syncthing replicates the directory, so the site content
+    the operator or an application layer puts there reaches the
+    other node. An application that inherits web adds its own paths
+    beside this one.
+
+ -- KeelLinux maintainers <admin@keellinux.org>  Sun, 25 Oct 2026 16:00:00 +0000
+
+keel-web (0.3.5) trixie; urgency=medium
+
+  * Override the lintian tag
+    package-contains-documentation-outside-usr-share-doc for the three
+    pages under /usr/share/keel-web/default-site: they are served by
+    Nginx, not documentation (closes: keel-web#6).
+
+ -- KeelLinux maintainers <admin@keellinux.org>  Sun, 25 Oct 2026 12:00:00 +0000
+
+keel-web (0.3.4) trixie; urgency=medium
+
+  * The composition carries the syncthing overlay (handbook decision 0050,
+    step 4): the package is in every image and the service runs in the
+    cloud modes, where a database pair exists for it to replicate the
+    state an application declares (one Syncthing folder per
+    state.replicate path). Disabled in simple, like coraza and anubis.
+
+ -- KeelLinux maintainers <admin@keellinux.org>  Sat, 24 Oct 2026 12:00:00 +0000
+
 keel-web (0.3.3) trixie; urgency=medium
 
   * It depends on keel-overlay-anubis (>= 0.1.1), whose snippet passes the

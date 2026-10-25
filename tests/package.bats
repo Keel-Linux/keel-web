@@ -53,7 +53,7 @@ listed() {
     [ "$output" = $'Package: keel-web\nArchitecture: all' ]
 }
 
-@test "it depends on Core, the three Web overlays and the keel that runs state hooks" {
+@test "it depends on Core, the four Web overlays and the keel that runs state hooks" {
     run dpkg-deb -f "$DEB" Depends
     [ "$status" -eq 0 ]
     # anubis 1.27.0-0+keel2 serves the challenge to a client without gzip
@@ -64,7 +64,7 @@ listed() {
     # names the rule it blocks with in its audit log (0.1.1: its state
     # hook, gzip answers whole); keel-overlay-anubis 0.1.1 passes the
     # Upgrade header of a WebSocket (Keel-Linux/common#58)
-    [ "$output" = "anubis (>= 1.27.0-0+keel3), keel (>= 0.15.0), keel-core, keel-overlay-anubis (>= 0.1.1), keel-overlay-coraza (>= 0.1.4), keel-overlay-nginx" ]
+    [ "$output" = "anubis (>= 1.27.0-0+keel3), keel (>= 0.15.0), keel-core, keel-overlay-anubis (>= 0.1.1), keel-overlay-coraza (>= 0.1.4), keel-overlay-nginx, keel-overlay-syncthing" ]
 }
 
 @test "the manifest is installed as /usr/share/keel/appliances/web.yaml, 0644 root" {
@@ -116,13 +116,14 @@ listed() {
     [ -f "$BUILD/control/postrm" ]
 }
 
-@test "it installs the manifest, the two sites, the three pages, the hook, Nginx's drop-in and their documentation, nothing more" {
+@test "it installs the manifest, the two sites, the three pages, the hook, Nginx's drop-in, the lintian override and their documentation, nothing more" {
     run bash -c "dpkg-deb -c '$DEB' | awk '{print \$6}' | grep -v '/\$' | sort"
     [ "$status" -eq 0 ]
     expected="$(printf '%s\n' "./$SITE" "./$FRONT" "./$HOOK" "./$DROPIN" \
         "./$PAGES/index.html" "./$PAGES/404.html" "./$PAGES/50x.html" \
         ./usr/share/doc/keel-web/changelog.gz ./usr/share/doc/keel-web/copyright \
-        ./usr/share/keel/appliances/web.yaml | sort)"
+        ./usr/share/keel/appliances/web.yaml \
+        ./usr/share/lintian/overrides/keel-web | sort)"
     [ "$output" = "$expected" ]
 }
 
@@ -745,7 +746,17 @@ machine_cert() {
     [ "$output" = "{'simple': 'disabled', 'cloud_simple': 'enabled', 'cloud_advanced': 'enabled'}" ]
 }
 
-@test "manifest: exactly the three overlays of Web, and nothing else of its own" {
-    run manifest '(sorted(m["overlays"]), sorted(set(m) - {"manifest_version", "kind", "name", "title", "summary", "base", "overlays"}))'
-    [ "$output" = "(['anubis', 'coraza', 'nginx'], [])" ]
+@test "manifest: syncthing is disabled in simple and enabled in the cloud modes (0050)" {
+    run manifest 'm["overlays"]["syncthing"]'
+    [ "$output" = "{'simple': 'disabled', 'cloud_simple': 'enabled', 'cloud_advanced': 'enabled'}" ]
+}
+
+@test "manifest: exactly the four overlays of Web, and state (0068), nothing else of its own" {
+    run manifest '(sorted(m["overlays"]), sorted(set(m) - {"manifest_version", "kind", "name", "title", "summary", "base", "overlays", "state"}))'
+    [ "$output" = "(['anubis', 'coraza', 'nginx', 'syncthing'], [])" ]
+}
+
+@test "manifest: state.replicate holds /var/www/keel-default (0068)" {
+    run manifest 'm["state"]["replicate"]'
+    [ "$output" = "['/var/www/keel-default']" ]
 }
