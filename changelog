@@ -2,11 +2,12 @@ keel-web-19.0 (10) keel; urgency=low
 
   * Stable 1, the first stable release (handbook docs/releases/stable-1-plan.md).
     The image is built on the stable track: it reads trixie of
-    archive.keellinux.org and not trixie-testing. It carries keel 0.23.49.
-    The package keel-web is 0.3.3. This branch starts before the packaging of
-    keel-web 0.3.4, which depends on the syncthing overlay.
+    archive.keellinux.org and not trixie-testing. It carries keel 0.23.55
+    and keel-web 0.3.6. The syncthing overlay and the default replicate
+    path of decision 0068 are in the image. File replication runs in the
+    cloud modes (keel#221, keel#224, keel#225, keel#228).
 
- -- KeelLinux maintainers <admin@keellinux.org>  Sat, 24 Oct 2026 18:05:00 +0000
+ -- KeelLinux maintainers <admin@keellinux.org>  Sat, 25 Oct 2026 18:00:00 +0000
 
 keel-web-19.0 (9) keel; urgency=low
 
