@@ -116,13 +116,14 @@ listed() {
     [ -f "$BUILD/control/postrm" ]
 }
 
-@test "it installs the manifest, the two sites, the three pages, the hook, Nginx's drop-in and their documentation, nothing more" {
+@test "it installs the manifest, the two sites, the three pages, the hook, Nginx's drop-in, the lintian override and their documentation, nothing more" {
     run bash -c "dpkg-deb -c '$DEB' | awk '{print \$6}' | grep -v '/\$' | sort"
     [ "$status" -eq 0 ]
     expected="$(printf '%s\n' "./$SITE" "./$FRONT" "./$HOOK" "./$DROPIN" \
         "./$PAGES/index.html" "./$PAGES/404.html" "./$PAGES/50x.html" \
         ./usr/share/doc/keel-web/changelog.gz ./usr/share/doc/keel-web/copyright \
-        ./usr/share/keel/appliances/web.yaml | sort)"
+        ./usr/share/keel/appliances/web.yaml \
+        ./usr/share/lintian/overrides/keel-web | sort)"
     [ "$output" = "$expected" ]
 }
 

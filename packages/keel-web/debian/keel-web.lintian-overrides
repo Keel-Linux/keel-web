@@ -1,0 +1,3 @@
+# The pages under /usr/share/keel-web/default-site are served by Nginx,
+# not documentation; debian/rules explains why they live under /usr/share.
+keel-web: package-contains-documentation-outside-usr-share-doc [usr/share/keel-web/default-site/*]
