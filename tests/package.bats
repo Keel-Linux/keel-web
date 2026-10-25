@@ -751,7 +751,12 @@ machine_cert() {
     [ "$output" = "{'simple': 'disabled', 'cloud_simple': 'enabled', 'cloud_advanced': 'enabled'}" ]
 }
 
-@test "manifest: exactly the four overlays of Web, and nothing else of its own" {
-    run manifest '(sorted(m["overlays"]), sorted(set(m) - {"manifest_version", "kind", "name", "title", "summary", "base", "overlays"}))'
+@test "manifest: exactly the four overlays of Web, and state (0068), nothing else of its own" {
+    run manifest '(sorted(m["overlays"]), sorted(set(m) - {"manifest_version", "kind", "name", "title", "summary", "base", "overlays", "state"}))'
     [ "$output" = "(['anubis', 'coraza', 'nginx', 'syncthing'], [])" ]
+}
+
+@test "manifest: state.replicate holds /var/www/keel-default (0068)" {
+    run manifest 'm["state"]["replicate"]'
+    [ "$output" = "['/var/www/keel-default']" ]
 }
