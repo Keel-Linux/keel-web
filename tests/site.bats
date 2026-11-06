@@ -28,6 +28,8 @@ HOOK=/usr/lib/keel/overlays/anubis/state.d/50keel-web
 RECORD=/var/lib/keel-web/debian-default-unlinked
 CERT=/usr/local/share/ca-certificates/cert.crt
 DROPIN=/usr/lib/systemd/system/nginx.service.d/keel-web.conf
+REDIRECT=/etc/nginx/keel-web/http-redirect.conf
+ANUBIS_ENV=/etc/anubis/keel-web-http.env
 
 setup_file() {
     if [ "${KEEL_WEB_SITE_TEST:-}" != 1 ]; then
@@ -43,8 +45,8 @@ setup_file() {
         echo "refusing to run: needs systemd running; Nginx is its service" >&2
         return 1
     fi
-    # the address the site is reached by from outside: port 80 of the
-    # loopback is keel-overlay-nginx's /keel-health server
+    # the address the site is reached by from outside: the loopback of
+    # port 80 is the site's too (0079), but never redirects
     ADDR="$(ip -o -6 addr show scope global | awk '{print $4}' | cut -d/ -f1 | head -1)"
     if [ -n "$ADDR" ]; then
         HOST="[$ADDR]"
@@ -122,13 +124,25 @@ nothing_at() {
 
 # keel-host-keys.service makes the certificate Nginx needs to start; it is
 # not on this machine, and a Wants= of a missing unit is no error
-@test "nginx.service wants and starts after keel-host-keys.service, through keel-web's drop-in" {
+@test "nginx.service wants and starts after keel-host-keys.service and keel-web-http.service, through keel-web's drop-in" {
     run systemctl show nginx.service -p DropInPaths --value
     [[ "$output" == *"$DROPIN"* ]]
     run systemctl show nginx.service -p Wants --value
     [[ " $output " == *" keel-host-keys.service "* ]]
+    [[ " $output " == *" keel-web-http.service "* ]]
     run systemctl show nginx.service -p After --value
     [[ " $output " == *" keel-host-keys.service "* ]]
+    [[ " $output " == *" keel-web-http.service "* ]]
+}
+
+# decision 0079: the certificate here is self-signed, so http-mode has
+# port 80 serve the site and Anubis's cookies go without Secure
+@test "keel-web-http.path watches the certificate, and http-mode ran: no redirect, Anubis's file linked" {
+    systemctl is-enabled keel-web-http.path
+    systemctl is-active keel-web-http.path
+    systemctl is-enabled keel-web-http.service
+    nothing_at "$REDIRECT"
+    [ "$(readlink "$ANUBIS_ENV")" = /usr/share/keel-web/anubis-http.env ]
 }
 
 @test "Debian's default site is disabled, its file kept, and the removal recorded" {
@@ -144,9 +158,9 @@ nothing_at() {
     [ -f /var/www/keel-default/50x.html ]
 }
 
-# the manifest's check: 204 on the loopback, where keel-overlay-nginx's
-# server answers port 80 and the default site answers 443, and on the
-# machine's address on both schemes
+# the manifest's check: 204 on the loopback, where the default site takes
+# port 80 from keel-overlay-nginx's server (0079), and on the machine's
+# address on both schemes
 @test "/keel-health answers 204 on both loopbacks and both schemes" {
     [ "$(code 'http://[::1]/keel-health')" = 204 ]
     [ "$(code 'http://127.0.0.1/keel-health')" = 204 ]
@@ -163,6 +177,16 @@ nothing_at() {
     [[ "$output" == *"Keel Web"* ]]
     [[ "$output" == *"No site is configured"* ]]
     [[ "$output" == *"instance.yaml"* ]]
+}
+
+# 0079: http://127.0.0.1/ is the site, not keel-health.conf's 404, so a
+# check on the machine reaches the application on top
+@test "the placeholder is served at / on the loopback of port 80" {
+    [ "$(code 'http://127.0.0.1/')" = 200 ]
+    [ "$(code 'http://[::1]/')" = 200 ]
+    run body 'http://127.0.0.1/'
+    [[ "$output" == *"No site is configured"* ]]
+    [ "$(code 'http://127.0.0.1/no-such-page')" = 404 ]
 }
 
 @test "the placeholder is served at / over HTTPS with the machine's certificate" {
@@ -226,7 +250,9 @@ server_header() {
 # the mode switch: the anubis overlay turned on puts the front in the
 # default site's place, turned off puts the default site back
 
-@test "anubis enabled: the front takes the default server, HTTP redirects to HTTPS, 443 is Anubis's" {
+# 0079: with the self-signed certificate, port 80 goes through Anubis as
+# 443 does, with no redirect; the loopback too, but for /keel-health
+@test "anubis enabled: the front takes the default server, and HTTP, HTTPS and the loopback are Anubis's" {
     run "$HOOK" enabled
     [ "$status" -eq 0 ]
     front_linked
@@ -234,17 +260,21 @@ server_header() {
     nothing_at "$ENABLED/default"
     run nginx -t
     [ "$status" -eq 0 ]
-    eventually_code 301 "http://$HOST/x"
-    run curl -s -o /dev/null -w '%{redirect_url}' "http://$HOST/x"
-    [ "$output" = "https://$HOST/x" ]
-    # Anubis is not running on this machine: the proxy behind 443 answers
-    # 502, with the default site's 50x page, not the placeholder
-    [ "$(code "https://$HOST/")" = 502 ]
-    run body "https://$HOST/"
-    [[ "$output" == *"<title>Not available</title>"* ]]
-    [[ "$output" == *"This Keel Web node could not answer the request."* ]]
-    [[ "$output" != *"No site is configured"* ]]
-    [[ "$output" != *"nginx/"* ]]
+    # Anubis is not running on this machine: the proxy answers 502, with
+    # the default site's 50x page, not the placeholder
+    local url
+    for url in "http://$HOST/" "https://$HOST/" 'http://127.0.0.1/' 'http://[::1]/'; do
+        eventually_code 502 "$url"
+        run body "$url"
+        [[ "$output" == *"<title>Not available</title>"* ]]
+        [[ "$output" == *"This Keel Web node could not answer the request."* ]]
+        [[ "$output" != *"No site is configured"* ]]
+        [[ "$output" != *"nginx/"* ]]
+    done
+    # the manifest's check, before Anubis, to the loopback only
+    [ "$(code 'http://127.0.0.1/keel-health')" = 204 ]
+    [ "$(code 'http://[::1]/keel-health')" = 204 ]
+    [ "$(code "https://$HOST/keel-health")" = 403 ]
 }
 
 @test "anubis enabled twice changes nothing" {
@@ -272,6 +302,118 @@ server_header() {
     run "$HOOK" disabled
     [ "$status" -eq 0 ]
     [[ "$output" == *"unchanged (disabled)"* ]]
+    site_linked
+}
+
+# Decision 0079: a certificate that a CA issued makes port 80 redirect to
+# HTTPS, by keel-web-http.path alone, and the self-signed one back makes
+# it serve again. Only cert.crt changes: the default site serves TLS from
+# cert.pem, so its key still matches. The test CA is made here.
+put_issued_cert() {
+    local dir="$BATS_FILE_TMPDIR/ca"
+    mkdir -p "$dir"
+    openssl req -x509 -days 2 -nodes -newkey rsa:2048 -subj /CN=Site-Test-CA \
+        -addext basicConstraints=critical,CA:TRUE \
+        -keyout "$dir/ca.key" -out "$dir/ca.crt" 2>/dev/null
+    openssl req -days 2 -nodes -newkey rsa:2048 -subj /CN=keel.example \
+        -keyout "$dir/leaf.key" -out "$dir/leaf.csr" 2>/dev/null
+    openssl x509 -req -in "$dir/leaf.csr" -CA "$dir/ca.crt" -CAkey "$dir/ca.key" \
+        -CAcreateserial -days 2 \
+        -extfile <(printf 'subjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid\n') \
+        -out "$dir/leaf.crt" 2>/dev/null
+    cp "$CERT" "$BATS_FILE_TMPDIR/self-signed.crt"
+    cat "$dir/leaf.crt" "$dir/ca.crt" > "$CERT"
+}
+
+# http-mode links the redirect first, then removes Anubis's file: wait for
+# both
+eventually_redirects() {
+    local i
+    for i in $(seq 100); do
+        [ -L "$REDIRECT" ] && nothing_at "$ANUBIS_ENV" && return 0
+        sleep 0.1
+    done
+    return 1
+}
+
+eventually_serves() {
+    local i
+    for i in $(seq 100); do
+        nothing_at "$REDIRECT" && [ -L "$ANUBIS_ENV" ] && return 0
+        sleep 0.1
+    done
+    return 1
+}
+
+@test "a CA's certificate: port 80 redirects to HTTPS, except ACME's challenges and the loopback" {
+    put_issued_cert
+    eventually_redirects
+    eventually_code 301 "http://$HOST/x"
+    run curl -s -o /dev/null -w '%{redirect_url}' "http://$HOST/x?y=1"
+    [ "$output" = "https://$HOST/x?y=1" ]
+    # dehydrated's WELLKNOWN on port 80, never redirected
+    mkdir -p /var/lib/dehydrated/acme-challenges
+    echo token-value > /var/lib/dehydrated/acme-challenges/site-test-token
+    [ "$(body "http://$HOST/.well-known/acme-challenge/site-test-token")" = token-value ]
+    [ "$(code "http://$HOST/.well-known/acme-challenge/no-such-token")" = 404 ]
+    rm -f /var/lib/dehydrated/acme-challenges/site-test-token
+    # the loopback and 443 still serve the site
+    [ "$(code 'http://127.0.0.1/')" = 200 ]
+    [ "$(code 'http://[::1]/keel-health')" = 204 ]
+    [ "$(code "https://$HOST/")" = 200 ]
+}
+
+@test "the self-signed certificate back: port 80 serves the site again" {
+    cp "$BATS_FILE_TMPDIR/self-signed.crt" "$CERT"
+    eventually_serves
+    [ "$(readlink "$ANUBIS_ENV")" = /usr/share/keel-web/anubis-http.env ]
+    eventually_code 200 "http://$HOST/"
+    run body "http://$HOST/"
+    [[ "$output" == *"No site is configured"* ]]
+}
+
+# The front reads cert.crt with cert.key, so the whole pair changes here:
+# the key and cert.pem first, cert.crt, which keel-web-http.path watches,
+# last
+put_issued_pair() {
+    local dir="$BATS_FILE_TMPDIR/ca"
+    mkdir -p "$BATS_FILE_TMPDIR/self"
+    cp /etc/ssl/private/cert.key /etc/ssl/private/cert.pem "$CERT" "$BATS_FILE_TMPDIR/self/"
+    cp "$dir/leaf.key" /etc/ssl/private/cert.key
+    cat "$dir/leaf.crt" "$dir/ca.crt" "$dir/leaf.key" /etc/ssl/private/dhparams.pem > /etc/ssl/private/cert.pem
+    cat "$dir/leaf.crt" "$dir/ca.crt" > "$CERT"
+}
+
+put_self_pair() {
+    cp "$BATS_FILE_TMPDIR/self/cert.key" "$BATS_FILE_TMPDIR/self/cert.pem" /etc/ssl/private/
+    cp "$BATS_FILE_TMPDIR/self/cert.crt" "$CERT"
+}
+
+@test "anubis enabled with a CA's certificate: port 80 redirects, ACME's challenges and the loopback do not" {
+    run "$HOOK" enabled
+    [ "$status" -eq 0 ]
+    front_linked
+    put_issued_pair
+    eventually_redirects
+    run nginx -t
+    [ "$status" -eq 0 ]
+    eventually_code 301 "http://$HOST/x"
+    run curl -s -o /dev/null -w '%{redirect_url}' "http://$HOST/x"
+    [ "$output" = "https://$HOST/x" ]
+    mkdir -p /var/lib/dehydrated/acme-challenges
+    echo token-value > /var/lib/dehydrated/acme-challenges/site-test-token
+    [ "$(body "http://$HOST/.well-known/acme-challenge/site-test-token")" = token-value ]
+    [ "$(code "http://$HOST/.well-known/acme-challenge/no-such-token")" = 404 ]
+    rm -f /var/lib/dehydrated/acme-challenges/site-test-token
+    # the loopback goes to Anubis (not running here: 502), never redirected
+    [ "$(code 'http://127.0.0.1/')" = 502 ]
+    [ "$(code 'http://[::1]/keel-health')" = 204 ]
+    [ "$(code "https://$HOST/")" = 502 ]
+    put_self_pair
+    eventually_serves
+    eventually_code 502 "http://$HOST/x"
+    run "$HOOK" disabled
+    [ "$status" -eq 0 ]
     site_linked
 }
 
@@ -359,8 +501,11 @@ put_route() {
     run body "http://$HOST/"
     [[ "$output" == *"<title>Welcome to nginx!</title>"* ]]
     [[ "$output" != *"No site is configured"* ]]
-    # the drop-in leaves with the package, and systemd knows
+    # the drop-in and http-mode's units leave with the package, and
+    # systemd knows
     nothing_at "$DROPIN"
+    nothing_at /usr/lib/systemd/system/keel-web-http.path
+    nothing_at "$ANUBIS_ENV"
     run systemctl show nginx.service -p DropInPaths --value
     [[ "$output" != *"$DROPIN"* ]]
 }
@@ -385,10 +530,17 @@ put_route() {
     [ ! -e "$SITE" ]
     [ ! -e /var/lib/keel-web ]
     run dpkg -i "$DEB"
+    local said=$output
     [ "$status" -eq 0 ]
     site_linked
     nothing_at "$ENABLED/default"
-    eventually_code 200 "https://$HOST/"
+    eventually_code 200 "https://$HOST/" || {
+        echo "$said" >&3
+        nginx -t >&3 2>&1 || :
+        ss -ltnp >&3 2>&1 || :
+        journalctl -u nginx -u keel-web-http --no-pager -n 40 >&3 2>&1 || :
+        false
+    }
     [ "$(code "https://$HOST/keel-health")" = 204 ]
 }
 

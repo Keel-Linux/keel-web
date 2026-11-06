@@ -19,6 +19,15 @@ completes headless from an instance spec, and the machine matches the spec.
   site's link is gone (the default server is the operator's), Debian's
   default site never touched, the rollback when `nginx -t` or the reload
   fails, Nginx stopped, and the two sites never enabled together.
+- `http-mode.bats`: unit tests of `packages/keel-web/http-mode`, port 80
+  after the machine's certificate (decision 0079). It runs against a
+  scratch `/etc/nginx` with `nginx` and `systemctl` as stubs and with
+  real certificates that openssl makes: self-signed (with and without key
+  identifiers), a leaf from a test CA with its chain, and a leaf under the
+  CA's own name; no certificate and a file that is no certificate; the
+  links made and removed, Nginx tested and reloaded only when it runs,
+  the rollback when `nginx -t` or the reload fails, Anubis restarted only
+  when it runs, and a file of the operator's left alone.
 - `image-conf.bats`: unit tests of `conf.d/main`, run against a scratch
   tree named by `KEEL_CONF_ROOT`.
 - `package.bats`: builds `packages/keel-web` with `dpkg-buildpackage` and
@@ -35,7 +44,9 @@ completes headless from an instance spec, and the machine matches the spec.
   machine's certificate where keel-host-keys writes it, only where
   `KEEL_WEB_SITE_TEST=1`; `KEEL_WEB_DEB` names the `.deb` to reinstall.
   It checks `nginx -t`, `/keel-health` on both loopbacks and both schemes,
-  the placeholder over HTTP and HTTPS with the machine's certificate,
+  the placeholder over HTTP and HTTPS with the machine's certificate and
+  on the loopback of port 80, port 80 redirecting with a CA's certificate
+  and serving again with the self-signed one (decision 0079),
   HTTP/2 and TLS 1.2 and 1.3, no server version, the 404 page,
   nginx.service ordered after keel-host-keys.service, the switch to the
   front and back through the state hook, a remove, reinstall and purge,
@@ -90,7 +101,9 @@ which puts the front in the default site's place), and Monit's file gains
 `crowdsec`, `firewall-bouncer`, `anubis` and `waf-blocks`. From outside
 the container (`-k`: the machine's certificate is self-signed):
 
-    curl -s -o /dev/null -w '%{http_code} %{redirect_url}' http://[<address>]/x   # 301 https://[<address>]/x
+    curl -s -A 'Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0' \
+        http://[<address>]/              # Anubis's challenge over HTTP: the certificate is self-signed (0079)
+    curl -s http://127.0.0.1/            # on the container: the placeholder, through Anubis
     curl -sk -o /dev/null -w '%{http_code}' 'https://[<address>]/?q=<script>alert(1)</script>'   # 403
     grep -F '[id \"941100\"]' /var/log/coraza/audit.log   # the rule that blocked, on the container
     curl -sk -A 'Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0' \
@@ -122,4 +135,5 @@ then hands Anubis that address in `X-Real-IP`, as it would a real one:
 
 A second `keel spec apply --system` changes nothing, and turning the two
 overlays off again puts the default site back (the placeholder on both
-schemes, HTTP not redirected) and unloads Coraza.
+schemes, port 80 not redirected while the certificate is self-signed) and
+unloads Coraza.

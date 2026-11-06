@@ -70,10 +70,12 @@ proofs:
 services: [nginx, ssh, webmin, postfix, cron, monit]
 urls:
   # the default site (keel-default). The checks run inside the machine, on
-  # its loopback, where port 80 is the server of keel-overlay-nginx's
-  # conf.d/keel-health.conf: /keel-health 204 for the monitor, and 404 for
-  # everything else. keel-default answers 80 on the machine's own addresses.
+  # its loopback. Port 80 of the loopback is the site's too (decision
+  # 0079): with the certificate of the first boot, self-signed, it serves
+  # the placeholder as 443 does, with no redirect, and /keel-health 204 for
+  # the monitor.
   - {url: 'https://127.0.0.1/', status: 200}
+  - {url: 'http://127.0.0.1/', status: 200}
   - {url: 'https://127.0.0.1/keel-health', status: 204}
   - {url: 'http://127.0.0.1/keel-health', status: 204}
   - {url: 'https://127.0.0.1:12321/', status: 200}

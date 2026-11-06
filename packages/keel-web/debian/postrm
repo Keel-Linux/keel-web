@@ -9,8 +9,10 @@
 # meanwhile; the postinst's markers go, so a reinstall enables the default
 # site again, and the purge takes the state directory. Links that are not
 # keel-web's, and a /var/www/keel-default that is not its link, are left
-# alone. A running Nginx is reloaded by the nginx-reload trigger, and
-# systemd forgets Nginx's drop-in, which left with the package. Paths are
+# alone. The links of http-mode (decision 0079) go when they point to the
+# package's files, which leave with it. A running Nginx is reloaded by the
+# nginx-reload trigger, and systemd forgets the drop-ins of Nginx and
+# Anubis, which left with the package. Paths are
 # under DPKG_ROOT, as dpkg sets it (empty on a machine); tests/package.bats
 # runs this script against a scratch root that way.
 set -e
@@ -27,6 +29,10 @@ WWW="$R/var/www/keel-default"
 STATE="$R/var/lib/keel-web"
 RECORD="$STATE/debian-default-unlinked"
 ENABLED="$STATE/keel-default-enabled"
+REDIRECT="$R/etc/nginx/keel-web/http-redirect.conf"
+REDIRECT_FILE=/usr/share/keel-web/http-redirect.conf
+ANUBIS_ENV="$R/etc/anubis/keel-web-http.env"
+ANUBIS_FILE=/usr/share/keel-web/anubis-http.env
 
 case "$1" in
     remove|purge)
@@ -39,6 +45,14 @@ case "$1" in
         if [ -f "$RECORD" ] && [ ! -e "$DEBIAN" ] && [ ! -L "$DEBIAN" ] \
                 && [ -f "$R$DEBIAN_SITE" ]; then
             ln -s "$DEBIAN_SITE" "$DEBIAN"
+        fi
+        # a dangling link here would make nginx -t refuse the
+        # configuration
+        if [ "$(readlink "$REDIRECT" || true)" = "$REDIRECT_FILE" ]; then
+            rm -f "$REDIRECT"
+        fi
+        if [ "$(readlink "$ANUBIS_ENV" || true)" = "$ANUBIS_FILE" ]; then
+            rm -f "$ANUBIS_ENV"
         fi
         rm -f "$RECORD" "$ENABLED"
         if [ "$(readlink "$WWW" || true)" = "$PAGES" ]; then

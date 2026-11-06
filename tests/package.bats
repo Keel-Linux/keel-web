@@ -16,6 +16,11 @@ SITE=etc/nginx/sites-available/keel-default
 FRONT=etc/nginx/sites-available/default-anubis
 PAGES=usr/share/keel-web/default-site
 DROPIN=usr/lib/systemd/system/nginx.service.d/keel-web.conf
+ANUBIS_DROPIN=usr/lib/systemd/system/anubis@keel.service.d/keel-web.conf
+SITE_SNIPPET=etc/nginx/snippets/keel-web-site.conf
+FRONT_SNIPPET=etc/nginx/snippets/keel-web-front.conf
+ACME_SNIPPET=etc/nginx/snippets/keel-web-acme.conf
+HTTP_MODE=usr/lib/keel-web/http-mode
 DEBIAN_TEXT="# Debian's default server, as nginx-common ships it"
 
 setup_file() {
@@ -73,15 +78,18 @@ listed() {
     [[ "$output" == "-rw-r--r-- root/root "* ]]
 }
 
-@test "the default site and its Anubis front are conffiles of Nginx's layout" {
+@test "the default site, its Anubis front and their snippets are conffiles of Nginx's layout" {
     cmp "$PACKAGE_DIR/keel-default" "$BUILD/root/$SITE"
     cmp "$PACKAGE_DIR/default-anubis" "$BUILD/root/$FRONT"
+    cmp "$PACKAGE_DIR/nginx/keel-web-site.conf" "$BUILD/root/$SITE_SNIPPET"
+    cmp "$PACKAGE_DIR/nginx/keel-web-front.conf" "$BUILD/root/$FRONT_SNIPPET"
+    cmp "$PACKAGE_DIR/nginx/keel-web-acme.conf" "$BUILD/root/$ACME_SNIPPET"
     run listed "$SITE"
     [[ "$output" == "-rw-r--r-- root/root "* ]]
     run listed "$FRONT"
     [[ "$output" == "-rw-r--r-- root/root "* ]]
-    run dpkg-deb -I "$DEB" conffiles
-    [ "$output" = $'/'"$FRONT"$'\n/'"$SITE" ]
+    run bash -c "dpkg-deb -I '$DEB' conffiles | sort"
+    [ "$output" = "$(printf '/%s\n' "$FRONT" "$SITE" "$ACME_SNIPPET" "$FRONT_SNIPPET" "$SITE_SNIPPET" | sort)" ]
 }
 
 @test "the pages of the default site are installed under /usr/share, never /var/www" {
@@ -116,11 +124,16 @@ listed() {
     [ -f "$BUILD/control/postrm" ]
 }
 
-@test "it installs the manifest, the two sites, the three pages, the hook, Nginx's drop-in, the lintian override and their documentation, nothing more" {
+@test "it installs the manifest, the two sites and their snippets, the three pages, the hook, http-mode with its units and files, the drop-ins, the lintian override and their documentation, nothing more" {
     run bash -c "dpkg-deb -c '$DEB' | awk '{print \$6}' | grep -v '/\$' | sort"
     [ "$status" -eq 0 ]
     expected="$(printf '%s\n' "./$SITE" "./$FRONT" "./$HOOK" "./$DROPIN" \
         "./$PAGES/index.html" "./$PAGES/404.html" "./$PAGES/50x.html" \
+        "./$SITE_SNIPPET" "./$FRONT_SNIPPET" "./$ACME_SNIPPET" \
+        "./$HTTP_MODE" "./$ANUBIS_DROPIN" \
+        ./usr/share/keel-web/http-redirect.conf ./usr/share/keel-web/anubis-http.env \
+        ./usr/lib/systemd/system/keel-web-http.service \
+        ./usr/lib/systemd/system/keel-web-http.path \
         ./usr/share/doc/keel-web/changelog.gz ./usr/share/doc/keel-web/copyright \
         ./usr/share/keel/appliances/web.yaml \
         ./usr/share/lintian/overrides/keel-web | sort)"
@@ -130,13 +143,101 @@ listed() {
 # Nginx reads the machine's certificate to start at all, port 80 included:
 # keel-host-keys.service makes a missing one, so Nginx wants it and starts
 # after it. An ExecStartPre= of a drop-in would run after nginx.service's
-# own nginx -t, which fails first.
-@test "Nginx's drop-in has it want and start after keel-host-keys.service, and nothing else" {
+# own nginx -t, which fails first. keel-web-http.service decides from the
+# certificate what port 80 does (0079), so each start of Nginx runs it
+# first.
+@test "Nginx's drop-in has it want and start after keel-host-keys.service and keel-web-http.service, and nothing else" {
     cmp "$PACKAGE_DIR/nginx-keel-host-keys.conf" "$BUILD/root/$DROPIN"
     run listed "$DROPIN"
     [[ "$output" == "-rw-r--r-- root/root "* ]]
     run grep -v -e '^#' -e '^$' "$BUILD/root/$DROPIN"
-    [ "$output" = $'[Unit]\nWants=keel-host-keys.service\nAfter=keel-host-keys.service' ]
+    [ "$output" = $'[Unit]\nWants=keel-host-keys.service keel-web-http.service\nAfter=keel-host-keys.service keel-web-http.service' ]
+}
+
+# decision 0079: port 80 after the machine's certificate
+
+@test "http-mode is an executable of root's that nobody else may write" {
+    cmp "$PACKAGE_DIR/http-mode" "$BUILD/root/$HTTP_MODE"
+    run listed "$HTTP_MODE"
+    [[ "$output" == "-rwxr-xr-x root/root "* ]]
+}
+
+@test "keel-web-http.service runs http-mode once, after keel-host-keys and before Nginx and Anubis" {
+    local unit="$BUILD/root/usr/lib/systemd/system/keel-web-http.service"
+    run grep -v -e '^#' -e '^$' "$unit"
+    [[ "$output" == *$'After=keel-host-keys.service\nBefore=nginx.service anubis@keel.service'* ]]
+    [[ "$output" == *$'Type=oneshot\nExecStart=/usr/lib/keel-web/http-mode'* ]]
+    [[ "$output" != *RemainAfterExit* ]]
+    [[ "$output" == *'WantedBy=multi-user.target'* ]]
+}
+
+@test "keel-web-http.path starts the service when the machine's certificate changes" {
+    local unit="$BUILD/root/usr/lib/systemd/system/keel-web-http.path"
+    grep -qx 'PathChanged=/usr/local/share/ca-certificates/cert.crt' "$unit"
+    grep -qx 'Unit=keel-web-http.service' "$unit"
+    grep -qx 'WantedBy=multi-user.target' "$unit"
+}
+
+@test "the maintainer scripts enable both units" {
+    grep -q 'keel-web-http.path' "$BUILD/control/postinst"
+    grep -q 'keel-web-http.service' "$BUILD/control/postinst"
+}
+
+@test "Anubis's drop-in reads keel-web-http.env after keel.env, a missing file no error" {
+    cmp "$PACKAGE_DIR/anubis-keel-web.conf" "$BUILD/root/$ANUBIS_DROPIN"
+    run grep -v -e '^#' -e '^$' "$BUILD/root/$ANUBIS_DROPIN"
+    [ "$output" = $'[Unit]\nAfter=keel-web-http.service\n[Service]\nEnvironmentFile=-/etc/anubis/keel-web-http.env' ]
+}
+
+@test "anubis-http.env turns Secure off and SameSite to Lax, nothing else" {
+    run grep -v -e '^#' -e '^$' "$BUILD/root/usr/share/keel-web/anubis-http.env"
+    [ "$output" = $'COOKIE_SECURE=false\nCOOKIE_SAME_SITE=Lax' ]
+}
+
+@test "http-redirect.conf redirects every path but ACME's http-01 challenges to HTTPS" {
+    run grep -v -e '^#' -e '^$' "$BUILD/root/usr/share/keel-web/http-redirect.conf"
+    [ "$output" = $'if ($uri !~ "^/\\.well-known/acme-challenge/") {\n\treturn 301 https://$host$request_uri;\n}' ]
+}
+
+@test "the redirect's directory is shipped empty: port 80 serves until http-mode links it" {
+    run listed "etc/nginx/keel-web/"
+    [[ "$output" == "drwxr-xr-x root/root "* ]]
+    run bash -c "dpkg-deb -c '$DEB' | awk '{print \$6}' | grep '^./etc/nginx/keel-web/.'"
+    [ "$output" = "" ]
+}
+
+# a missing challenge answers 404 from a named location: the site's error
+# page is an internal redirect, which runs the server-level redirect again
+@test "the ACME snippet serves dehydrated's WELLKNOWN on its path only, a missing one 404" {
+    run grep -v -e '^[[:space:]]*#' -e '^$' "$PACKAGE_DIR/nginx/keel-web-acme.conf"
+    [ "$output" = $'location ^~ /.well-known/acme-challenge/ {\n\talias /var/lib/dehydrated/acme-challenges/;\n\terror_page 404 @keel_web_no_challenge;\n}\nlocation @keel_web_no_challenge {\n\treturn 404;\n}' ]
+}
+
+# each public server on port 80 includes the redirect glob and the ACME
+# snippet; no other server does
+@test "both sites: only the public server on port 80 includes the redirect and the ACME snippet" {
+    local site
+    for site in keel-default default-anubis; do
+        run grep -c 'include /etc/nginx/keel-web/http-\*.conf;' "$PACKAGE_DIR/$site"
+        [ "$output" = 1 ]
+        run grep -c 'include /etc/nginx/snippets/keel-web-acme.conf;' "$PACKAGE_DIR/$site"
+        [ "$output" = 1 ]
+        run awk '/listen \[::\]:80 default_server;/,/^}/' "$PACKAGE_DIR/$site"
+        [[ "$output" == *'include /etc/nginx/keel-web/http-*.conf;'* ]]
+        [[ "$output" == *'include /etc/nginx/snippets/keel-web-acme.conf;'* ]]
+        [[ "$output" != *'listen [::1]'* ]]
+    done
+}
+
+# the loopback of port 80 is the site's, with the server of 443, which
+# never redirects: http://127.0.0.1/ reaches the application (0079)
+@test "both sites: the loopback addresses of port 80 are the default server of the server on 443" {
+    local site
+    for site in keel-default default-anubis; do
+        run awk '/listen \[::\]:443 ssl default_server;/,/^}/' "$PACKAGE_DIR/$site"
+        [[ "$output" == *$'\tlisten [::1]:80 default_server;\n\tlisten 127.0.0.1:80 default_server;'* ]]
+        [[ "$output" != *'keel-web/http-'* ]]
+    done
 }
 
 # the maintainer scripts, the built ones, against a scratch root through
@@ -447,6 +548,32 @@ machine_cert() {
     [ -d "$PR/var/www/keel-default" ]
 }
 
+# http-mode's links point to files that leave with the package: a link
+# left behind would make nginx -t refuse the configuration (0079)
+@test "postrm remove takes http-mode's links away" {
+    scratch_root
+    postinst configure
+    mkdir -p "$PR/etc/nginx/keel-web" "$PR/etc/anubis"
+    ln -s /usr/share/keel-web/http-redirect.conf "$PR/etc/nginx/keel-web/http-redirect.conf"
+    ln -s /usr/share/keel-web/anubis-http.env "$PR/etc/anubis/keel-web-http.env"
+    run postrm remove
+    [ "$status" -eq 0 ]
+    [ ! -L "$PR/etc/nginx/keel-web/http-redirect.conf" ]
+    [ ! -L "$PR/etc/anubis/keel-web-http.env" ]
+}
+
+@test "postrm leaves files of the operator's where http-mode's links go" {
+    scratch_root
+    postinst configure
+    mkdir -p "$PR/etc/nginx/keel-web" "$PR/etc/anubis"
+    ln -s /srv/other "$PR/etc/nginx/keel-web/http-redirect.conf"
+    echo "COOKIE_SECURE=true" > "$PR/etc/anubis/keel-web-http.env"
+    run postrm purge
+    [ "$status" -eq 0 ]
+    [ "$(readlink "$PR/etc/nginx/keel-web/http-redirect.conf")" = /srv/other ]
+    [ -f "$PR/etc/anubis/keel-web-http.env" ]
+}
+
 @test "postrm upgrade changes nothing" {
     scratch_root
     postinst configure
@@ -458,13 +585,15 @@ machine_cert() {
 
 # the default site: /etc/nginx/sites-available/keel-default
 
-@test "default site: the default server on 80 and 443, IPv6 first, IPv4 on, TLS on 443, HTTP/2" {
+@test "default site: the default server on 443, the loopback of 80, and 80, IPv6 first, IPv4 on, TLS on 443, HTTP/2" {
     run grep -E '^\s*listen ' "$PACKAGE_DIR/keel-default"
-    [ "${lines[0]}" = $'\tlisten [::]:80 default_server;' ]
-    [ "${lines[1]}" = $'\tlisten 0.0.0.0:80 default_server;' ]
-    [ "${lines[2]}" = $'\tlisten [::]:443 ssl default_server;' ]
-    [ "${lines[3]}" = $'\tlisten 0.0.0.0:443 ssl default_server;' ]
-    [ "${#lines[@]}" -eq 4 ]
+    [ "${lines[0]}" = $'\tlisten [::]:443 ssl default_server;' ]
+    [ "${lines[1]}" = $'\tlisten 0.0.0.0:443 ssl default_server;' ]
+    [ "${lines[2]}" = $'\tlisten [::1]:80 default_server;' ]
+    [ "${lines[3]}" = $'\tlisten 127.0.0.1:80 default_server;' ]
+    [ "${lines[4]}" = $'\tlisten [::]:80 default_server;' ]
+    [ "${lines[5]}" = $'\tlisten 0.0.0.0:80 default_server;' ]
+    [ "${#lines[@]}" -eq 6 ]
     grep -q $'^\thttp2 on;$' "$PACKAGE_DIR/keel-default"
 }
 
@@ -503,10 +632,15 @@ machine_cert() {
     grep -q 'TODO(Keel-Linux/tracker#51, decision 0042 tls.hsts)' "$PACKAGE_DIR/keel-default"
 }
 
-# ACME's http-01 needs port 80 to answer; the redirect is the cloud site's
-@test "default site: HTTP is served, not redirected" {
-    run bash -c "grep -v '^[[:space:]]*#' '$PACKAGE_DIR/keel-default' | grep -c 'return 301'"
-    [ "$output" = 0 ]
+# 0079: the redirect is http-redirect.conf, which http-mode links only
+# while a CA's certificate is in place; the sites and their snippets
+# never redirect by themselves
+@test "default site: HTTP is served, not redirected, by the sites themselves" {
+    local file
+    for file in keel-default default-anubis nginx/keel-web-site.conf nginx/keel-web-front.conf; do
+        run bash -c "grep -v '^[[:space:]]*#' '$PACKAGE_DIR/$file' | grep -c 'return 301'"
+        [ "$output" = 0 ]
+    done
 }
 
 # Decision 0059, point 4: a stack layer (LNMP, LNPP) puts its location
@@ -522,16 +656,20 @@ machine_cert() {
     [ "$output" = "" ]
 }
 
-@test "routes: the default site includes keel-default.d once, in its server" {
-    run grep -c -E $'^\tinclude /etc/nginx/keel-default.d/\*\.conf;$' "$PACKAGE_DIR/keel-default"
+@test "routes: the site snippet includes keel-default.d once, and each server of the default site the snippet" {
+    run grep -c -E '^include /etc/nginx/keel-default.d/\*\.conf;$' "$PACKAGE_DIR/nginx/keel-web-site.conf"
     [ "$output" = 1 ]
+    run grep -c -E $'^\tinclude /etc/nginx/snippets/keel-web-site.conf;$' "$PACKAGE_DIR/keel-default"
+    [ "$output" = 2 ]
 }
 
-@test "routes: behind Anubis, the server on keel-app.sock includes keel-default.d, the front does not" {
-    run grep -c 'include /etc/nginx/keel-default.d/' "$PACKAGE_DIR/default-anubis"
+@test "routes: behind Anubis, the server on keel-app.sock includes the site snippet, the front does not" {
+    run grep -c 'include /etc/nginx/snippets/keel-web-site.conf;' "$PACKAGE_DIR/default-anubis"
     [ "$output" = 1 ]
     run awk '/listen unix:\/run\/nginx\/keel-app.sock;/,0' "$PACKAGE_DIR/default-anubis"
-    [[ "$output" == *$'\tinclude /etc/nginx/keel-default.d/*.conf;'* ]]
+    [[ "$output" == *$'\tinclude /etc/nginx/snippets/keel-web-site.conf;'* ]]
+    run grep -c 'keel-default.d' "$PACKAGE_DIR/nginx/keel-web-front.conf"
+    [ "$output" = 0 ]
 }
 
 # Keel-Linux/keel-web#15. The front on 443 limits the body to 1 MB by the
@@ -548,44 +686,62 @@ machine_cert() {
     [ "$output" = "" ]
 }
 
-@test "front: the server on 443 includes keel-front.d and sets no body limit of its own" {
-    run awk '/listen \[::\]:443 ssl default_server;/,/listen unix:/' "$PACKAGE_DIR/default-anubis"
-    [[ "$output" == *$'\tinclude /etc/nginx/keel-front.d/*.conf;'* ]]
+@test "front: the front snippet includes keel-front.d and sets no body limit of its own" {
+    run grep -c -E '^include /etc/nginx/keel-front.d/\*\.conf;$' "$PACKAGE_DIR/nginx/keel-web-front.conf"
+    [ "$output" = 1 ]
     # Nginx refuses a second client_max_body_size in the same server, so a
     # file of keel-front.d could not set the limit if the site set it. The
     # default of Nginx, 1m, stands until a file sets another.
-    run bash -c "awk '/listen \[::\]:443 ssl default_server;/,/listen unix:/' '$PACKAGE_DIR/default-anubis' | grep -v '^[[:space:]]*#' | grep -c client_max_body_size"
-    [ "$output" = 0 ]
+    local file
+    for file in default-anubis nginx/keel-web-front.conf; do
+        run bash -c "grep -v '^[[:space:]]*#' '$PACKAGE_DIR/$file' | grep -c client_max_body_size"
+        [ "$output" = 0 ]
+    done
 }
 
 @test "front: the server behind Anubis and the default site do not include keel-front.d" {
     run awk '/listen unix:\/run\/nginx\/keel-app.sock;/,0' "$PACKAGE_DIR/default-anubis"
-    [[ "$output" != *keel-front.d* ]]
-    run grep -c 'keel-front.d' "$PACKAGE_DIR/keel-default"
+    [[ "$output" != *keel-front* ]]
+    run grep -c 'keel-front' "$PACKAGE_DIR/keel-default"
+    [ "$output" = 0 ]
+    run grep -c 'keel-front' "$PACKAGE_DIR/nginx/keel-web-site.conf"
     [ "$output" = 0 ]
 }
 
 @test "default site: the placeholder pages, from /var/www/keel-default, with its own 404 and 50x" {
-    grep -q $'^\troot /var/www/keel-default;$' "$PACKAGE_DIR/keel-default"
-    grep -q $'^\tindex index.html;$' "$PACKAGE_DIR/keel-default"
-    grep -q $'^\terror_page 404 /404.html;$' "$PACKAGE_DIR/keel-default"
-    grep -q $'^\terror_page 500 502 503 504 /50x.html;$' "$PACKAGE_DIR/keel-default"
-    run awk '/location = \/404.html/,/}/' "$PACKAGE_DIR/keel-default"
+    local snippet="$PACKAGE_DIR/nginx/keel-web-site.conf"
+    grep -qx 'root /var/www/keel-default;' "$snippet"
+    grep -qx 'index index.html;' "$snippet"
+    grep -qx 'error_page 404 /404.html;' "$snippet"
+    grep -qx 'error_page 500 502 503 504 /50x.html;' "$snippet"
+    run awk '/location = \/404.html/,/}/' "$snippet"
     [[ "$output" == *internal* ]]
-    run awk '/location = \/50x.html/,/}/' "$PACKAGE_DIR/keel-default"
+    run awk '/location = \/50x.html/,/}/' "$snippet"
     [[ "$output" == *internal* ]]
+}
+
+@test "snippets: the three are conffiles of root's in /etc/nginx/snippets" {
+    local snippet
+    for snippet in "$SITE_SNIPPET" "$FRONT_SNIPPET" "$ACME_SNIPPET"; do
+        run listed "$snippet"
+        [[ "$output" == "-rw-r--r-- root/root "* ]]
+        grep -qx "/$snippet" "$BUILD/control/conffiles"
+    done
 }
 
 @test "default site: no server version in headers or error pages" {
     grep -q $'^\tserver_tokens off;$' "$PACKAGE_DIR/keel-default"
 }
 
-# the manifest's check, on the site's own addresses and on both schemes;
-# the loopback on port 80 is keel-overlay-nginx's keel-health.conf
-@test "default site: /keel-health answers 204 through try_files, as the overlay's does" {
+# the manifest's check, on the site's own addresses, on its loopback of
+# port 80 (0079: the site's, no longer keel-overlay-nginx's
+# keel-health.conf) and on both schemes
+@test "default site: /keel-health answers 204 through try_files, as the overlay's does, in both servers" {
     run bash -c "awk '/location = \/keel-health/,/}/' '$PACKAGE_DIR/keel-default' | grep -v '^[[:space:]]*#'"
     [[ "$output" == *'try_files /.keel-health-is-no-file =204;'* ]]
     [[ "$output" != *return* ]]
+    run grep -c 'location = /keel-health' "$PACKAGE_DIR/keel-default"
+    [ "$output" = 2 ]
 }
 
 # the pages
@@ -623,22 +779,34 @@ machine_cert() {
 
 # the Anubis front: /etc/nginx/sites-available/default-anubis
 
-# Anubis's cookies are Secure, so over plain HTTP no browser passed the
-# challenge (the maintainer's screenshot 114): the front serves HTTPS and
-# port 80 only redirects (handbook decision 0042, redirect_http)
-@test "front: the front takes the default server on ports 80 and 443, IPv6 first, TLS on 443" {
+# Anubis's cookies are Secure by default, so over plain HTTP no browser
+# passed the challenge (the maintainer's screenshot 114). Decision 0079:
+# while the certificate is self-signed, port 80 goes through Anubis as 443
+# does, with anubis-http.env linked; once a CA's certificate is in place
+# it redirects (0042, redirect_http)
+@test "front: the front takes the default server on ports 80 and 443 and the loopback of 80, IPv6 first, TLS on 443" {
     run grep -E '^\s*listen [^u]' "$PACKAGE_DIR/default-anubis"
     [ "${lines[0]}" = $'\tlisten [::]:80 default_server;' ]
     [ "${lines[1]}" = $'\tlisten 80 default_server;' ]
     [ "${lines[2]}" = $'\tlisten [::]:443 ssl default_server;' ]
     [ "${lines[3]}" = $'\tlisten 443 ssl default_server;' ]
-    [ "${#lines[@]}" -eq 4 ]
+    [ "${lines[4]}" = $'\tlisten [::1]:80 default_server;' ]
+    [ "${lines[5]}" = $'\tlisten 127.0.0.1:80 default_server;' ]
+    [ "${#lines[@]}" -eq 6 ]
 }
 
-@test "front: port 80 answers every request with 301 to the same URL on HTTPS" {
+@test "front: port 80 goes through Anubis, as 443 does, until the redirect is linked" {
     run awk '/listen 80 default_server/,/^}/' "$PACKAGE_DIR/default-anubis"
-    [[ "$output" == *$'\treturn 301 https://$host$request_uri;'* ]]
-    [[ "$output" != *keel-anubis.conf* ]]
+    [[ "$output" == *$'\tinclude /etc/nginx/snippets/keel-web-front.conf;'* ]]
+    [[ "$output" != *'return 301'* ]]
+}
+
+@test "front: /keel-health answers 204 to the loopback only, before Anubis" {
+    run awk '/location = \/keel-health/,/}/' "$PACKAGE_DIR/default-anubis"
+    [[ "$output" == *$'allow ::1;\n\t\tallow 127.0.0.1;\n\t\tdeny all;'* ]]
+    [[ "$output" == *'try_files /.keel-health-is-no-file =204;'* ]]
+    run grep -c 'location = /keel-health' "$PACKAGE_DIR/default-anubis"
+    [ "$output" = 1 ]
 }
 
 @test "front: 443 uses the machine's certificate, the default of decision 0042" {
@@ -673,11 +841,15 @@ machine_cert() {
     [ "$output" = 0 ]
 }
 
-@test "front: every request on 443 goes through the overlay's Anubis snippet" {
-    run grep -c 'include /etc/nginx/snippets/keel-anubis.conf;' "$PACKAGE_DIR/default-anubis"
+@test "front: every request on 80 and 443 goes through the overlay's Anubis snippet" {
+    run grep -c 'include /etc/nginx/snippets/keel-anubis.conf;' "$PACKAGE_DIR/nginx/keel-web-front.conf"
     [ "$output" = 1 ]
-    run awk '/listen 443 ssl default_server/,/^}/' "$PACKAGE_DIR/default-anubis"
+    run awk '/^location \/ \{/,/^}/' "$PACKAGE_DIR/nginx/keel-web-front.conf"
     [[ "$output" == *'include /etc/nginx/snippets/keel-anubis.conf;'* ]]
+    run grep -c $'^\tinclude /etc/nginx/snippets/keel-web-front.conf;$' "$PACKAGE_DIR/default-anubis"
+    [ "$output" = 2 ]
+    run awk '/listen 443 ssl default_server/,/^}/' "$PACKAGE_DIR/default-anubis"
+    [[ "$output" == *'include /etc/nginx/snippets/keel-web-front.conf;'* ]]
 }
 
 @test "front: what Anubis allows is served on keel-app.sock, trusting X-Real-IP from unix: only" {
@@ -698,25 +870,26 @@ machine_cert() {
 
 # the same content in both modes: the pages of the default site
 @test "front: the content is the default site's, /var/www/keel-default" {
-    grep -q $'^\troot /var/www/keel-default;$' "$PACKAGE_DIR/default-anubis"
-    grep -q $'^\tindex index.html;$' "$PACKAGE_DIR/default-anubis"
-    run grep -c '/var/www/html' "$PACKAGE_DIR/default-anubis"
-    [ "$output" = 0 ]
+    grep -qx 'root /var/www/keel-default;' "$PACKAGE_DIR/nginx/keel-web-front.conf"
+    local file
+    for file in default-anubis nginx/keel-web-front.conf nginx/keel-web-site.conf; do
+        run grep -c '/var/www/html' "$PACKAGE_DIR/$file"
+        [ "$output" = 0 ]
+    done
 }
 
 # a 502 or 504 while Anubis is down or slow is Nginx's own, on 443: the
 # Keel pages there too, never nginx's stock page; the socket's server has
 # them for what it serves
-@test "front: 443 and the socket answer errors with the default site's 404 and 50x pages" {
-    run grep -c $'^\terror_page 404 /404.html;$' "$PACKAGE_DIR/default-anubis"
-    [ "$output" = 2 ]
-    run grep -c $'^\terror_page 500 502 503 504 /50x.html;$' "$PACKAGE_DIR/default-anubis"
-    [ "$output" = 2 ]
-    run awk '/listen 443 ssl default_server/,/^}/' "$PACKAGE_DIR/default-anubis"
-    [[ "$output" == *$'\troot /var/www/keel-default;'* ]]
-    [[ "$output" == *$'\terror_page 500 502 503 504 /50x.html;'* ]]
-    [[ "$output" == *$'location = /50x.html {\n\t\tinternal;\n\t}'* ]]
-    [[ "$output" == *$'location = /404.html {\n\t\tinternal;\n\t}'* ]]
+@test "front: the front and the socket answer errors with the default site's 404 and 50x pages" {
+    local snippet
+    for snippet in keel-web-front.conf keel-web-site.conf; do
+        run cat "$PACKAGE_DIR/nginx/$snippet"
+        [[ "$output" == *$'\nerror_page 404 /404.html;\n'* ]]
+        [[ "$output" == *$'\nerror_page 500 502 503 504 /50x.html;\n'* ]]
+        [[ "$output" == *$'location = /50x.html {\n\tinternal;\n}'* ]]
+        [[ "$output" == *$'location = /404.html {\n\tinternal;\n}'* ]]
+    done
 }
 
 @test "front: no server version in headers or error pages, in any of its three servers" {

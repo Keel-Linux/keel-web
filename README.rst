@@ -59,18 +59,65 @@ Both sites serve HTTPS on 443 with the machine's certificate, the
 ``keel-host-keys.service`` at the first boot, before Nginx starts, until
 the confconsole Certificate screen issues one through ACME at the same
 paths. A browser warns about the self-signed certificate once; there is
-no HSTS until the certificate is a CA's (Keel-Linux/tracker#51). Port 80
-differs: the default site serves it, because ACME's http-01 needs it to
-answer; behind Anubis it answers 301 to the same URL on HTTPS, since
-Anubis sets its cookies ``Secure`` and over plain HTTP no browser could
-pass its challenge. ``/keel-health`` answers 204 on both schemes on the
-default site. Both sites answer by name and by IP. Anubis redirects a
+no HSTS until the certificate is a CA's (Keel-Linux/tracker#51).
+Both sites answer by name and by IP. Anubis redirects a
 solved challenge only to the scheme, host and port the request came to
 (anubis 1.27.0-0+keel3 with ``REDIRECT_DOMAINS`` left empty): any name or
 address the site is reached by works, a new DNS name or a public IP
 behind NAT included, and no other host can be reached through it.
 The usage screen lists ``https://<address>``, right in every mode, and the
 keel banner takes the scheme of its Web line from it.
+
+Port 80 (handbook decision 0079)
+--------------------------------
+
+Port 80 is the application's when an application sits on top of Keel Web,
+and the placeholder's when none does. The rule depends on the machine's
+certificate:
+
+- **Self-signed** (the certificate of the first boot, or no certificate
+  for a domain yet): port 80 serves the site as 443 does, with the same
+  routes of ``keel-default.d`` and, in the cloud modes, through Anubis
+  and Coraza. There is no redirect. So an application that does not
+  control its domain name can be seen to work over HTTP before the name
+  points to the machine. In the cloud modes Anubis sets its cookies
+  without ``Secure`` (``COOKIE_SECURE=false``, ``COOKIE_SAME_SITE=Lax``)
+  while this is so, because a browser does not keep a ``Secure`` cookie
+  from a plain HTTP page and would never pass the challenge. The pass of
+  a challenge is not a credential.
+- **Issued by a certificate authority** (ACME through the confconsole
+  Certificate screen or ``tls.acme`` of the instance spec): port 80
+  answers 301 to the same URL on HTTPS, and Anubis's cookies are
+  ``Secure`` again. ``/.well-known/acme-challenge/`` stays on port 80, so
+  a certificate can be renewed; it is served from dehydrated's
+  ``/var/lib/dehydrated/acme-challenges/``.
+
+The switch is automatic. ``keel-web-http.path`` watches
+``/usr/local/share/ca-certificates/cert.crt`` and starts
+``keel-web-http.service``, which runs ``/usr/lib/keel-web/http-mode``;
+every start of Nginx runs it first too. A certificate is self-signed when
+its subject is its issuer and its authority key identifier is absent or
+is its own subject key identifier, the rule of keel's ``inspect``.
+``http-mode`` links ``/etc/nginx/keel-web/http-redirect.conf`` to the
+package's file for a CA's certificate and removes the link for a
+self-signed one; the public server on port 80 of each site includes
+``/etc/nginx/keel-web/http-*.conf``, which matches no file while the
+certificate is self-signed. For Anubis it links
+``/etc/anubis/keel-web-http.env``, which ``anubis@keel.service`` reads
+after ``keel.env``. Each change is tested with ``nginx -t`` and Nginx is
+reloaded, or the link is put back; a running Anubis is restarted.
+
+The loopback addresses of port 80, ``[::1]:80`` and ``127.0.0.1:80``,
+belong to the sites, which take them as ``default_server`` from the server
+of keel-overlay-nginx's ``conf.d/keel-health.conf``. They share the
+server of port 443 and never redirect, whatever the certificate. So
+``http://127.0.0.1/`` reaches the application for the checks that run on
+the machine, and ``http://127.0.0.1/keel-health`` answers 204 without the
+application, for the manifest's check. Behind Anubis, ``/keel-health``
+answers the loopback only (403 to other clients). The content of the
+sites is in three snippets in ``/etc/nginx/snippets/``:
+``keel-web-site.conf`` (the pages and the routes), ``keel-web-front.conf``
+(the Anubis front) and ``keel-web-acme.conf`` (the ACME challenges).
 
 The project's contributions to this repository are licensed
 GPL-3.0-or-later (``LICENSE``; project decision 0007). The organization

@@ -10,10 +10,11 @@ jobs:
   tests:
     # Unit tests of the project-authored shell (decision 0004): the boot
     # test's helper library (tests/lib/boot-test-lib.sh), the anubis state
-    # hook of the package (packages/keel-web/anubis-front) and the image's
+    # hook of the package (packages/keel-web/anubis-front), its port 80
+    # switch (packages/keel-web/http-mode, 2026-11-06) and the image's
     # conf script (conf.d/main), each under bats and kcov through
     # tests/coverage.sh. Threshold is the number measured in COVERAGE.md
-    # (100 percent for all three, 2026-10-01) and is only ever raised
+    # (100 percent for all four, 2026-11-06) and is only ever raised
     # (decision 0006). This job produces the check "tests / coverage".
     runs-on: keel-host
     uses: keel-linux/.github/.github/workflows/test-shell.yml@main
