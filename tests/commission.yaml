@@ -95,3 +95,62 @@ screenshots:
     url: /
     login: {user_field: 'input[name=user]', user: root, password_field: 'input[name=pass]', secret: root, submit: 'button[type=submit]'}
     wait: 8
+
+# The cloud modes (decision 0076): cloud simple is a primary on BR1 and a
+# replica on BR2. The prompts are the titles of the confconsole screens,
+# which are data here: a new title is a change of this file, not of
+# keel-commission. A node's answer of the id mode replaces the question
+# mode above (keel-commission, .github#45). The vm-iso pass takes the
+# default screens of tkl-installer (no vm section).
+cloud:
+  capture:
+    # keel1: an invite without a VIP, keel2: one that carries it (keel 0.23.83)
+    invite: 'keel[12]:[A-Za-z0-9_.~+/=-]+'
+    # the label anchors it: the usage screen shows the node's own addresses too
+    vip: 'VIP:? +([0-9a-f]{1,4}(:[0-9a-f]{0,4}){2,7})'
+  # the screens on which a node waits for another: no key while they are up
+  waits: [Waiting for the nodes]
+  # the proofs across the pair, in order. Web declares state paths
+  # (/var/www/keel-default), so the invite carries the VIP of the pair
+  # (BR1 and BR2, 2026-11-06): one node carries it ("carried here: yes",
+  # keel 0.23.83), and a promote moves it. Each node has the other as its
+  # WireGuard peer, with a recent handshake, and the overlay carries
+  # traffic across the sites.
+  checks:
+    - {id: mesh-peer, at: all, run: 'keel mesh status', match: 'handshake [0-9]+ s ago', count: 2}
+    - id: mesh-ping
+      at: all
+      run: 'ping -6 -c 3 -W 5 "$(wg show wg0 allowed-ips | awk "{print \$2}" | cut -d/ -f1)"'
+      match: ' 0% packet loss'
+      count: 2
+    - {id: vip-holder, at: all, run: 'keel vip status', match: 'carried here: yes', count: 1}
+    # Syncthing replicates the state paths of the manifests (0050)
+    - {id: files-follow, at: replica, run: 'k=$(cat /var/lib/keel/filesync/apikey); curl -s -H "X-API-Key: $k" http://127.0.0.1:8384/rest/config/folders', match: 'receiveonly'}
+    - {id: files-sent, at: primary, run: 'k=$(cat /var/lib/keel/filesync/apikey); curl -s -H "X-API-Key: $k" http://127.0.0.1:8384/rest/config/folders', match: 'sendonly'}
+    - {id: promote, at: replica, run: 'keel vip promote'}
+    - {id: promoted-holder, at: replica, run: 'keel vip status', match: 'carried here: yes'}
+    - {id: return, at: primary, run: 'keel vip promote'}
+    - {id: returned-holder, at: primary, run: 'keel vip status', match: 'carried here: yes'}
+    # no unit failed on either node: the cloud modes start overlays (anubis,
+    # coraza, crowdsec, syncthing) that services: does not name
+    - {id: no-failed-units, at: all, run: 'systemctl --failed --no-legend --plain | wc -l', match: '^0$', count: 2}
+nodes:
+  - name: primary
+    site: br1
+    mode: cloud_simple
+    role: primary
+    # the hotkeys of the menus (the first letter of an item): an arrow key is
+    # an escape sequence, and the console of a container can hand dialog its
+    # ESC alone, which cancels the screen (BR1, 2026-11-06)
+    answers:
+      - {id: mode, prompt: Installation mode, keys: 'C{ret}'}
+      - {id: role, prompt: Role of this node, keys: 'P{ret}'}
+      - {id: invite, prompt: Invite a node, keys: '{ret}'}
+  - name: replica
+    site: br2
+    mode: cloud_simple
+    role: replica
+    answers:
+      - {id: mode, prompt: Installation mode, keys: 'C{ret}'}
+      - {id: role, prompt: Role of this node, keys: 'R{ret}'}
+      - {id: join, prompt: Join a mesh, keys: '{invite:1}{ret}'}
