@@ -1,0 +1,95 @@
+# The commissioning contract of keel-web (handbook decision 0075). The shared
+# runner, bin/keel-commission of Keel-Linux/.github, reads it. It makes a
+# container from the template on a Proxmox host as an operator does, answers
+# the first boot, and then checks what this file says. The CI job
+# "commission / contract" checks only that this file is valid.
+#
+# A new first boot question or a new secret is a change of this file in the
+# same pull request (0075, Consequences).
+contract: 1
+appliance: web
+secrets: [root]
+# The prompts are the titles on the screen of keel-init. A password menu of
+# the same title (Generate or Manual) gets Manual from the runner, then the
+# answer goes into the password box and its confirmation.
+questions:
+  - id: root_password
+    hook: 30rootpass
+    prompt: Root Password
+    answer: secret:root
+  # The Mode screen of decision 0076, the first step of 75keel-role.
+  # Simple is its first entry. A described installation.mode skips it.
+  - id: mode
+    hook: 75keel-role
+    prompt: Installation mode
+    type: choice
+    answer: '{ret}'
+  - id: alert_email
+    hook: 85secalerts
+    prompt: System Notifications
+    answer: admin@example.org
+# keel/instance.example.yaml of keel-web, with the secret of the run and no
+# instance name: the machine keeps the name that pct create gave it
+instance:
+  version: 1
+  network:
+    managed_by: host
+    interfaces:
+      eth0:
+        ipv6:
+          method: auto
+  tls:
+    acme:
+      enabled: false
+  appliance:
+    name: web
+  installation:
+    mode: simple
+  overlays:
+    installer: enabled
+    wireguard: disabled
+    etcd: disabled
+    crowdsec: disabled
+    vip: disabled
+    nginx: enabled
+    coraza: disabled
+    anubis: disabled
+    syncthing: disabled
+  secrets:
+    root_password: secret:root
+  hub:
+    api_key: skip
+  security:
+    alerts: admin@example.org
+    updates_at_first_boot: skip
+  first_login_wizard: false
+proofs:
+  - {secret: root, kind: shadow, user: root}
+# Core's processes, nginx, and Monit, which runs the checks that keel
+# derives from the manifests
+services: [nginx, ssh, webmin, postfix, cron, monit]
+urls:
+  # the default site (keel-default). The checks run inside the machine, on
+  # its loopback, where port 80 is the server of keel-overlay-nginx's
+  # conf.d/keel-health.conf: /keel-health 204 for the monitor, and 404 for
+  # everything else. keel-default answers 80 on the machine's own addresses.
+  - {url: 'https://127.0.0.1/', status: 200}
+  - {url: 'https://127.0.0.1/keel-health', status: 204}
+  - {url: 'http://127.0.0.1/keel-health', status: 204}
+  - {url: 'https://127.0.0.1:12321/', status: 200}
+forbidden:
+  # the build tools of a layer stay on the build host
+  - {kind: path, name: /usr/local/lib/keel-build}
+  # Debian's default site is replaced by keel-default (the postinst)
+  - {kind: path, name: /etc/nginx/sites-enabled/default}
+  # Web has no database: the stacks add it
+  - {kind: path, name: /usr/sbin/mariadbd}
+# The web pages of the gallery (decisions 0075 and 0077): the default site,
+# and Webmin before and after the login with the root secret.
+screenshots:
+  - {name: site, url: /}
+  - name: webmin
+    port: 12321
+    url: /
+    login: {user_field: 'input[name=user]', user: root, password_field: 'input[name=pass]', secret: root, submit: 'button[type=submit]'}
+    wait: 8

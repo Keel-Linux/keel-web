@@ -43,3 +43,11 @@ jobs:
       # is gone: the workflow makes it an error once the mirror answers.
       parent: core
       timeout: 60
+  commission:
+    # The commissioning contract, tests/commission.yaml (handbook decision
+    # 0075): keel-commission --check of Keel-Linux/.github reads it and says
+    # whether it is valid, so the appliance cannot leave it out. It runs no
+    # machine; the passes on BR1 and BR2 are the release gate's. Check
+    # "commission / contract".
+    runs-on: keel-host
+    uses: keel-linux/.github/.github/workflows/commission-contract.yml@main
