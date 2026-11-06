@@ -1,3 +1,13 @@
+keel-web (0.4.1) trixie; urgency=medium
+
+  * anubis-http.env sets COOKIE_PARTITIONED=false too. Chrome refuses a
+    Partitioned cookie without Secure (CHIPS), and Anubis sets Partitioned
+    by default: while the certificate was self-signed, a browser never
+    passed the challenge and was told "Your browser is configured to
+    disable cookies" (commissioning run, BR1 and BR2, 2026-11-06).
+
+ -- KeelLinux maintainers <admin@keellinux.org>  Fri, 06 Nov 2026 16:00:00 +0000
+
 keel-web (0.4.0) trixie; urgency=medium
 
   * Port 80 is the application's (handbook decision 0079). While the
