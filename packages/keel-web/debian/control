@@ -33,11 +33,19 @@ Description: Keel Web, the base of every Keel web appliance
  /etc/nginx/sites-available/keel-default (HTTP and HTTPS with the machine's
  certificate, a placeholder page until a site is configured, its own 404
  and 50x pages), which its postinst enables in place of Debian's default
- site; its Anubis front, /etc/nginx/sites-available/default-anubis (HTTPS
- with the machine's certificate, port 80 redirecting to it); and the state
- hook that keel spec apply runs when the anubis overlay is turned on or
- off, which puts the front in the default site's place and back. Coraza and
- Anubis are enabled by keel from the instance spec, never by this package.
+ site; its Anubis front, /etc/nginx/sites-available/default-anubis (the
+ same pages through Anubis, HTTPS with the machine's certificate); and the
+ state hook that keel spec apply runs when the anubis overlay is turned on
+ or off, which puts the front in the default site's place and back. Coraza
+ and Anubis are enabled by keel from the instance spec, never by this
+ package.
+ .
+ Port 80 serves the site as 443 does while the machine's certificate is
+ self-signed, and redirects to HTTPS when a certificate authority's is in
+ place (handbook decision 0079): keel-web-http.path watches the
+ certificate and /usr/lib/keel-web/http-mode switches the two sites and
+ Anubis's cookies. The loopback of port 80 always serves the site, and
+ /keel-health answers 204 there.
  .
  Both sites include /etc/nginx/keel-default.d/*.conf, where a stack layer
  (LNMP, LNPP) puts its location blocks: a route there is served by the

@@ -1,33 +1,54 @@
 # keel-web: the default site with Anubis in front of it (handbook
-# decisions 0030 and 0041, step 7). Linked from sites-enabled/ in place of
-# keel-web's `keel-default` while the anubis overlay is enabled, by
-# /usr/lib/keel/overlays/anubis/state.d/50keel-web, which keel spec apply
-# runs; never by hand, and never at installation.
+# decisions 0030, 0041 step 7, and 0079). Linked from sites-enabled/ in
+# place of keel-web's `keel-default` while the anubis overlay is enabled,
+# by /usr/lib/keel/overlays/anubis/state.d/50keel-web, which keel spec
+# apply runs; never by hand, and never at installation.
 #
 # The pipeline of 0030: Nginx takes the request (Coraza, when its overlay
 # is enabled, inspects it here, in the http block), Anubis decides, and
 # what it allows comes back to Nginx on a unix socket, where the content
 # is served. Anubis keys on the client's address, which the snippet passes
 # in X-Real-IP; the socket trusts that header from unix: only, so nothing
-# outside the machine can set it (0042, "Real client IP").
+# outside the machine can set it (0042, "Real client IP"). The servers
+# that take requests (port 80, port 443, the loopback addresses of port
+# 80) include /etc/nginx/snippets/keel-web-front.conf; the server on the
+# socket includes /etc/nginx/snippets/keel-web-site.conf, the content of
+# keel-default.
 #
-# HTTPS only, port 80 redirecting (0042, redirect_http): Anubis sets its
-# cookies Secure, so over plain HTTP a browser never sends them back and
-# never passes the challenge. The certificate is the machine's, the
-# `default` of 0042: self-signed by keel-host-keys at the first boot until
-# the confconsole Certificate screen issues one through ACME, at the same
-# paths. So no HSTS here: over a self-signed certificate it locks visitors
-# out (0042, tls.hsts). By name or by IP alike: the default server serves
-# both, as the usage screen shows the IP. Anubis redirects a solved
-# challenge only to the origin the request came to (anubis
-# 1.27.0-0+keel3, REDIRECT_DOMAINS left empty), so any name the site is
-# reached by works and no other host can be reached through it.
+# Port 80 (decision 0079): while the machine's certificate is self-signed,
+# port 80 serves the site through Anubis as 443 does, with no redirect,
+# and /usr/lib/keel-web/http-mode has Anubis set its cookies without
+# Secure (/etc/anubis/keel-web-http.env): a browser keeps a Secure cookie
+# from HTTPS pages only, and without the cookie it never passes the
+# challenge. When the certificate is one that a certificate authority
+# issued, http-mode links /etc/nginx/keel-web/http-redirect.conf, which
+# the public server on port 80 includes, and Anubis's cookies are Secure
+# again: port 80 redirects to HTTPS (0042, redirect_http), except ACME's
+# http-01 challenges.
+#
+# The loopback addresses of port 80 are this site's (default_server), not
+# those of keel-overlay-nginx's conf.d/keel-health.conf, which listens
+# there too and gets only a request with no Host. They share the server of
+# port 443, which never redirects: so http://127.0.0.1/ reaches the
+# application through Anubis, whatever the certificate. Only /keel-health
+# is answered without Anubis, 204, and to the loopback only, for the
+# manifest's check.
+#
+# The certificate is the machine's, the `default` of 0042: self-signed by
+# keel-host-keys at the first boot until the confconsole Certificate
+# screen issues one through ACME, at the same paths. So no HSTS here: over
+# a self-signed certificate it locks visitors out (0042, tls.hsts). By
+# name or by IP alike: the default server serves both, as the usage screen
+# shows the IP. Anubis redirects a solved challenge only to the origin the
+# request came to (anubis 1.27.0-0+keel3, REDIRECT_DOMAINS left empty), so
+# any name the site is reached by works and no other host can be reached
+# through it.
 #
 # Until keel renders sites of its own (0042), this is the one site Keel
 # Web serves in the cloud modes: the pages of keel-default, the default
 # site of a simple installation, from /var/www/keel-default, with its 404
-# and 50x pages (on 443 too, for the errors Nginx answers itself) and no
-# server version. The two sites are never enabled together.
+# and 50x pages (on the front too, for the errors Nginx answers itself)
+# and no server version. The two sites are never enabled together.
 
 server {
 	listen [::]:80 default_server;
@@ -35,28 +56,21 @@ server {
 	server_name _;
 	server_tokens off;
 
-	location / {
-		return 301 https://$host$request_uri;
-	}
+	# http-redirect.conf while a CA's certificate is in place, else no file
+	include /etc/nginx/keel-web/http-*.conf;
+	include /etc/nginx/snippets/keel-web-acme.conf;
+
+	include /etc/nginx/snippets/keel-web-front.conf;
 }
 
 server {
 	listen [::]:443 ssl default_server;
 	listen 443 ssl default_server;
+	listen [::1]:80 default_server;
+	listen 127.0.0.1:80 default_server;
 	http2 on;
 	server_name _;
 	server_tokens off;
-
-	# The body limit of the front is the default of Nginx, 1 MB, and it is
-	# the only bound before Anubis, because the front hands the request body
-	# to Anubis whole. An application that takes uploads sets a larger
-	# limit with one client_max_body_size in a file of
-	# /etc/nginx/keel-front.d/, as the application layer of WordPress does
-	# (Keel-Linux/keel-web#15). This file sets none itself: Nginx refuses a
-	# second client_max_body_size in the same server. Coraza
-	# (keel-overlay-coraza 0.1.4) reads no upload file as an argument, so
-	# the size of an upload does not change the memory of a worker.
-	include /etc/nginx/keel-front.d/*.conf;
 
 	ssl_certificate /usr/local/share/ca-certificates/cert.crt;
 	ssl_certificate_key /etc/ssl/private/cert.key;
@@ -67,31 +81,26 @@ server {
 	ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384:DHE-RSA-CHACHA20-POLY1305';
 	ssl_prefer_server_ciphers off;
 
-	# Nginx answers here itself when Anubis is down or slow (502, 504):
-	# the default site's pages, not nginx's stock page.
-	root /var/www/keel-default;
-	error_page 404 /404.html;
-	error_page 500 502 503 504 /50x.html;
-
 	# TODO(Keel-Linux/tracker#51, decision 0042 tls.hsts): add
 	# Strict-Transport-Security once the confconsole Certificate screen has
 	# issued a CA's certificate through ACME; never over the self-signed one.
 	#
 	# A tls-passthrough site of 0042 needs the stream front on port 443:
-	# then these two listen lines must go, and this server listens behind
-	# it on unix:/run/nginx/keel-https.sock (Keel-Linux/tracker#51).
+	# then the two listen lines of port 443 must go, and this server
+	# listens behind it on unix:/run/nginx/keel-https.sock
+	# (Keel-Linux/tracker#51).
 
-	location = /404.html {
-		internal;
+	location = /keel-health {
+		allow ::1;
+		allow 127.0.0.1;
+		deny all;
+		# try_files, not return, as keel-health.conf has it: return
+		# answers in the rewrite phase, before Coraza sees the request.
+		# No file has this name, so the answer is always the 204.
+		try_files /.keel-health-is-no-file =204;
 	}
 
-	location = /50x.html {
-		internal;
-	}
-
-	location / {
-		include /etc/nginx/snippets/keel-anubis.conf;
-	}
+	include /etc/nginx/snippets/keel-web-front.conf;
 }
 
 server {
@@ -101,26 +110,5 @@ server {
 	set_real_ip_from unix:;
 	real_ip_header X-Real-IP;
 
-	root /var/www/keel-default;
-	index index.html;
-
-	error_page 404 /404.html;
-	error_page 500 502 503 504 /50x.html;
-
-	location = /404.html {
-		internal;
-	}
-
-	location = /50x.html {
-		internal;
-	}
-
-	# The routes of a stack layer (LNMP, LNPP: handbook decision 0059),
-	# each a location block in a file of /etc/nginx/keel-default.d/,
-	# included here, behind Anubis, and in the default site (keel-default).
-	include /etc/nginx/keel-default.d/*.conf;
-
-	location / {
-		try_files $uri $uri/ =404;
-	}
+	include /etc/nginx/snippets/keel-web-site.conf;
 }

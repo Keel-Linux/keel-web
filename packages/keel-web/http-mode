@@ -1,0 +1,177 @@
+#!/bin/bash
+# /usr/lib/keel-web/http-mode
+#
+# Port 80 of Keel Web's default site after the machine's certificate
+# (handbook decision 0079). keel-web-http.service runs it at boot, after
+# keel-host-keys.service and before Nginx and Anubis start, and again each
+# time keel-web-http.path sees /usr/local/share/ca-certificates/cert.crt
+# change: when confconsole's dehydrated-wrapper writes a certificate from
+# ACME, when keel apply makes a self-signed one again (tls.acme.enabled
+# false), or when an operator replaces it.
+#
+# The certificate is self-signed, missing or unreadable: port 80 serves
+# the site as 443 does. Nothing stands at
+# /etc/nginx/keel-web/http-redirect.conf, and /etc/anubis/keel-web-http.env
+# is linked, so Anubis sets its cookies without Secure and a browser on
+# port 80 keeps the pass of its challenge.
+#
+# The certificate is one that a certificate authority issued: port 80
+# redirects to HTTPS, except ACME's http-01 challenges.
+# /etc/nginx/keel-web/http-redirect.conf is linked, the Anubis link is
+# removed, and Anubis's cookies are Secure again.
+#
+# Self-signed is what keel's inspect/certificate.py says: the subject is
+# the issuer, and the authority key identifier is absent or is the
+# subject key identifier. `openssl verify` cannot tell: cert.crt is in
+# /usr/local/share/ca-certificates, so update-ca-certificates trusts the
+# self-signed certificate too.
+#
+# A changed link is tested with `nginx -t` and Nginx reloaded when it
+# runs; a refused test or a failed reload puts the link back and fails.
+# A changed Anubis link has a running anubis@keel.service restart. Nginx
+# wants keel-web-http.service (its drop-in), so each start of Nginx, the
+# restart of dehydrated-wrapper included, runs this first. A file
+# that is not a link where a link goes is the operator's: it is left
+# alone, and the run fails. Each link points to a file of the package.
+#
+# Exit codes: 0 done or unchanged, 1 refused or rolled back, 2 usage.
+#
+# The KEEL_* variables exist for tests/http-mode.bats; on a machine the
+# defaults are the paths of trixie's nginx and of the anubis package.
+set -euo pipefail
+
+NGINX_DIR="${KEEL_NGINX_DIR:-/etc/nginx}"
+PID_FILE="${KEEL_NGINX_PID:-/run/nginx.pid}"
+CERT="${KEEL_WEB_CERT:-/usr/local/share/ca-certificates/cert.crt}"
+SHARE="${KEEL_WEB_SHARE:-/usr/share/keel-web}"
+ANUBIS_LINK="${KEEL_WEB_ANUBIS_ENV:-/etc/anubis/keel-web-http.env}"
+ANUBIS_UNIT=anubis@keel.service
+
+REDIRECT_LINK="$NGINX_DIR/keel-web/http-redirect.conf"
+REDIRECT_FILE="$SHARE/http-redirect.conf"
+ANUBIS_FILE="$SHARE/anubis-http.env"
+
+say() {
+    echo "keel-web: $*"
+}
+
+fail() {
+    say "$*" >&2
+    exit 1
+}
+
+running() {
+    local pid
+    pid="$(cat "$PID_FILE" 2>/dev/null)" || return 1
+    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+
+# the value of FIELD (subject, issuer, ski, aki) in the text of
+# `openssl x509 -noout -subject -issuer -ext ...`
+# (an extension's value is the line after its name; OpenSSL 1.1 wrote
+# "keyid:" before the authority key). Every statement is on one line, so
+# that kcov counts each.
+field() {
+    local want="$1" line key=""
+    while IFS= read -r line; do
+        case "$line" in
+            subject=*) [ "$want" != subject ] || echo "${line#subject=}" ;;
+            issuer=*) [ "$want" != issuer ] || echo "${line#issuer=}" ;;
+            *"Subject Key Identifier"*) key=ski ;;
+            *"Authority Key Identifier"*) key=aki ;;
+            *)
+                [ -n "$key" ] || continue
+                line="${line#"${line%%[![:space:]]*}"}"
+                [ "$want" != "$key" ] || echo "${line#keyid:}"
+                key=""
+                ;;
+        esac
+    done <<< "$2"
+}
+
+# 0 when the first certificate of $CERT is one a certificate authority
+# issued; 1 when it is self-signed, missing or unreadable
+issued() {
+    local text subject aki
+    local fields=(-subject -issuer -ext "subjectKeyIdentifier,authorityKeyIdentifier" -nameopt RFC2253)
+    text="$(openssl x509 -in "$CERT" -noout "${fields[@]}" 2>/dev/null)" || return 1
+    subject="$(field subject "$text")"
+    [ "$subject" = "$(field issuer "$text")" ] || return 0
+    aki="$(field aki "$text")"
+    [ -n "$aki" ] && [ "$aki" != "$(field ski "$text")" ]
+}
+
+# a file of the operator's where a link of this script goes is never
+# replaced
+refuse_file() {
+    if [ -e "$1" ] && [ ! -L "$1" ]; then
+        fail "$1 is not a link; it is left alone, move it away first"
+    fi
+}
+
+# set_link LINK FILE yes|no: LINK points to FILE (yes) or is gone (no);
+# prints "changed" when it changed something
+set_link() {
+    local link="$1" file="$2" want="$3"
+    if [ "$want" = yes ]; then
+        [ "$(readlink "$link" || true)" != "$file" ] || return 0
+        mkdir -p "$(dirname "$link")"
+        ln -sfn "$file" "$link"
+    else
+        [ -L "$link" ] || return 0
+        rm -f "$link"
+    fi
+    echo changed
+}
+
+# the redirect, tested and reloaded when Nginx runs; rolled back on failure
+apply_nginx() {
+    local want="$1" changed
+    changed="$(set_link "$REDIRECT_LINK" "$REDIRECT_FILE" "$want")"
+    [ -n "$changed" ] || return 0
+    running || return 0
+    local undo=yes
+    [ "$want" = no ] || undo=no
+    if ! nginx -t; then
+        set_link "$REDIRECT_LINK" "$REDIRECT_FILE" "$undo" >/dev/null
+        fail "nginx -t refused the configuration; the link $REDIRECT_LINK is put back"
+    fi
+    if ! nginx -s reload; then
+        set_link "$REDIRECT_LINK" "$REDIRECT_FILE" "$undo" >/dev/null
+        nginx -s reload || :
+        fail "nginx -s reload failed; the link $REDIRECT_LINK is put back"
+    fi
+}
+
+# Anubis's cookies, the service restarted when it runs
+apply_anubis() {
+    local changed
+    changed="$(set_link "$ANUBIS_LINK" "$ANUBIS_FILE" "$1")"
+    [ -n "$changed" ] || return 0
+    # An Anubis that is not active (stopped, not installed, or starting
+    # after this service) reads the file at its start.
+    systemctl --quiet is-active "$ANUBIS_UNIT" || return 0
+    # --no-block: Anubis starts after keel-web-http.service, which runs
+    # this, so a blocking restart would wait for itself
+    systemctl --no-block restart "$ANUBIS_UNIT" || fail "$ANUBIS_UNIT did not restart; it reads $ANUBIS_LINK at its next start"
+}
+
+main() {
+    refuse_file "$REDIRECT_LINK"
+    refuse_file "$ANUBIS_LINK"
+    if issued; then
+        apply_nginx yes
+        apply_anubis no
+        say "port 80 redirects to HTTPS: $CERT is a certificate authority's"
+    else
+        apply_nginx no
+        apply_anubis yes
+        say "port 80 serves the site as 443 does: $CERT is self-signed or not there"
+    fi
+}
+
+[ "$#" -eq 0 ] || {
+    echo "usage: http-mode" >&2
+    exit 2
+}
+main

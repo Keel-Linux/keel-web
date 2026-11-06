@@ -9,8 +9,9 @@
 # enabled: replaces the link sites-enabled/keel-default (the default site
 # of a simple installation, which the package's postinst enabled) with
 # sites-enabled/default-anubis, the same pages behind Anubis: its servers
-# take the default server on port 80, which redirects to HTTPS, and on
-# port 443, which serves HTTPS with the machine's certificate (refused,
+# take the default server on port 80, which serves the same as 443 while
+# the certificate is self-signed and redirects to HTTPS when a CA's is in
+# place (http-mode, decision 0079), and on port 443, which serves HTTPS with the machine's certificate (refused,
 # changing nothing, while it is not there) and sends every request through
 # /etc/nginx/snippets/keel-anubis.conf of keel-overlay-anubis, and what
 # Anubis allows comes back on unix:/run/nginx/keel-app.sock, where the

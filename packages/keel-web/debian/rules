@@ -7,7 +7,11 @@
 # keeps a package out of /var/www; the postinst links /var/www/keel-default
 # to them and the default site into sites-enabled/, and the hook links the
 # front when the anubis overlay is enabled. Nginx's drop-in has it start
-# after keel-host-keys.service, which makes the certificate the sites read.
+# after keel-host-keys.service, which makes the certificate the sites read,
+# and after keel-web-http.service, whose http-mode decides from that
+# certificate what port 80 does (decision 0079): the two files it links
+# go under /usr/share/keel-web, the snippets the sites include are
+# conffiles in /etc/nginx/snippets.
 
 PKG = debian/keel-web
 
@@ -27,3 +31,18 @@ execute_after_dh_auto_install:
 		$(PKG)/usr/lib/systemd/system/nginx.service.d/keel-web.conf
 	install -D -m 0755 anubis-front \
 		$(PKG)/usr/lib/keel/overlays/anubis/state.d/50keel-web
+	install -d -m 0755 $(PKG)/etc/nginx/keel-web
+	install -D -m 0644 nginx/keel-web-site.conf $(PKG)/etc/nginx/snippets/keel-web-site.conf
+	install -D -m 0644 nginx/keel-web-front.conf $(PKG)/etc/nginx/snippets/keel-web-front.conf
+	install -D -m 0644 nginx/keel-web-acme.conf $(PKG)/etc/nginx/snippets/keel-web-acme.conf
+	install -D -m 0644 nginx/http-redirect.conf $(PKG)/usr/share/keel-web/http-redirect.conf
+	install -D -m 0644 anubis-http.env $(PKG)/usr/share/keel-web/anubis-http.env
+	install -D -m 0755 http-mode $(PKG)/usr/lib/keel-web/http-mode
+	install -D -m 0644 anubis-keel-web.conf \
+		$(PKG)/usr/lib/systemd/system/anubis@keel.service.d/keel-web.conf
+
+# keel-web-http.path and keel-web-http.service (decision 0079): enabled,
+# and on a machine started, by the maintainer scripts dh_installsystemd
+# writes
+override_dh_installsystemd:
+	dh_installsystemd --name=keel-web-http

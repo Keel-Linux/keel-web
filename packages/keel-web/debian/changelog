@@ -1,3 +1,35 @@
+keel-web (0.4.0) trixie; urgency=medium
+
+  * Port 80 is the application's (handbook decision 0079). While the
+    machine's certificate is self-signed, port 80 serves the site as 443
+    does, with the routes of keel-default.d and, in the cloud modes,
+    through Anubis and Coraza: the Anubis front no longer redirects port
+    80 then. When a certificate authority's certificate is in place,
+    port 80 redirects to HTTPS, in the simple mode too (a change: before,
+    the default site never redirected), except
+    /.well-known/acme-challenge/, which is served from dehydrated's
+    WELLKNOWN.
+  * New /usr/lib/keel-web/http-mode, run by keel-web-http.service at
+    boot and at each start of Nginx, and by keel-web-http.path when
+    /usr/local/share/ca-certificates/cert.crt changes. It links
+    /etc/nginx/keel-web/http-redirect.conf for a CA's certificate, tests
+    with nginx -t and reloads, and puts the link back on failure.
+  * While the certificate is self-signed, Anubis sets its cookies without
+    Secure (COOKIE_SECURE=false, COOKIE_SAME_SITE=Lax in
+    /etc/anubis/keel-web-http.env, which a new drop-in of
+    anubis@keel.service reads), so a browser on port 80 passes the
+    challenge. http-mode restarts a running Anubis when this changes.
+  * The loopback addresses of port 80 are the sites' default server, in
+    both modes and whatever the certificate: http://127.0.0.1/ reaches the
+    application, not the 404 of keel-overlay-nginx's keel-health.conf.
+    /keel-health still answers 204 there; behind Anubis it answers the
+    loopback only.
+  * The content of the sites moves to three conffiles in
+    /etc/nginx/snippets/: keel-web-site.conf, keel-web-front.conf and
+    keel-web-acme.conf. The postrm removes http-mode's links.
+
+ -- KeelLinux maintainers <admin@keellinux.org>  Fri, 06 Nov 2026 06:00:00 +0000
+
 keel-web (0.3.6) trixie; urgency=medium
 
   * The manifest declares state.replicate with

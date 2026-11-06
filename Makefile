@@ -5,8 +5,9 @@
 #
 # What it installs is the keel-web package of plan/main and what it depends
 # on; conf.d/main fails the build when the image is not in the simple
-# state. Nginx serves 80; behind Anubis (the cloud modes) 80 redirects to
-# 443, served with the machine's certificate. Webmin stays on 12321.
+# state. Nginx serves 80 and 443, 443 with the machine's certificate; 80
+# redirects to 443 only when that certificate is a CA's (handbook decision
+# 0079). Webmin stays on 12321.
 WEBMIN_FW_TCP_INCOMING = 22 80 443 12321
 
 include $(FAB_PATH)/common/mk/turnkey.mk

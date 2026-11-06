@@ -1,25 +1,38 @@
-# keel-web: the default site of Keel Web (handbook decisions 0030 and 0042,
-# the first site of Keel-Linux/tracker#51). Linked from sites-enabled/ by
-# the package's postinst in place of Debian's default site, whose link it
-# removes and whose file it leaves in sites-available/ (the postrm puts the
-# link back); taken out by /usr/lib/keel/overlays/anubis/state.d/50keel-web
-# while the anubis overlay is enabled, when default-anubis stands here, and
-# put back when it is disabled. Never edited by hand: it is a conffile, and
-# an operator's own default server goes in a file of theirs.
+# keel-web: the default site of Keel Web (handbook decisions 0030, 0042
+# and 0079, the first site of Keel-Linux/tracker#51). Linked from
+# sites-enabled/ by the package's postinst in place of Debian's default
+# site, whose link it removes and whose file it leaves in sites-available/
+# (the postrm puts the link back); taken out by
+# /usr/lib/keel/overlays/anubis/state.d/50keel-web while the anubis overlay
+# is enabled, when default-anubis stands here, and put back when it is
+# disabled. Never edited by hand: it is a conffile, and an operator's own
+# default server goes in a file of theirs.
 #
 # What a simple installation serves: the default server on ports 80 and
-# 443, IPv6 first and IPv4 on, the same placeholder on both schemes. HTTP
-# is served, not redirected: ACME's http-01 needs port 80 to answer, and
-# the redirect to HTTPS is the cloud site's (default-anubis, behind which
-# Anubis's Secure cookies need it). web.listen.ipv4 of 0042 is keel's to
-# honour when it renders the sites; this file is static and listens on
-# both families.
+# 443, IPv6 first and IPv4 on, and on the loopback addresses of port 80.
+# The content is /etc/nginx/snippets/keel-web-site.conf on all of them:
+# the placeholder, or the routes of the application layer on top
+# (keel-default.d). web.listen.ipv4 of 0042 is keel's to honour when it
+# renders the sites; this file is static and listens on both families.
 #
-# /keel-health answers 204 here, as keel-overlay-nginx's
-# conf.d/keel-health.conf does on the loopback addresses of port 80, which
-# it takes (Nginx hands a request to the exact address first): the
-# manifest's check reaches that server, and anything else, the loopback on
-# 443 included, reaches this one, on both schemes.
+# Port 80 (decision 0079): while the machine's certificate is self-signed,
+# port 80 serves the site as 443 does, with no redirect. So a site that
+# does not control its domain name is seen to work before its name points
+# to the machine and ACME gets a certificate. When the certificate is one
+# that a certificate authority issued, /usr/lib/keel-web/http-mode links
+# /etc/nginx/keel-web/http-redirect.conf, which the public server on port
+# 80 includes: port 80 then redirects to HTTPS, except ACME's http-01
+# challenges. While the certificate is self-signed the glob matches no
+# file, which Nginx accepts.
+#
+# The loopback addresses of port 80 are this site's (default_server), not
+# those of keel-overlay-nginx's conf.d/keel-health.conf, which listens
+# there too and gets only a request with no Host. So http://127.0.0.1/ and
+# http://[::1]/ reach the application, whatever the certificate, for the
+# checks that run on the machine. Only /keel-health is answered without
+# the application: 204, as keel-health.conf does, for the manifest's
+# check. The loopback shares the server of port 443, which never
+# redirects.
 #
 # TLS is the machine's certificate as turnkey-make-ssl-cert --default
 # writes it, the `default` certificate of 0042: self-signed by
@@ -32,8 +45,9 @@
 # (Mozilla's "intermediate"): TLS 1.2 and 1.3, forward secret ciphers
 # only; no session tickets, whose key Nginx never rotates. No HSTS: over a
 # self-signed certificate it locks visitors out. Nginx starts after
-# keel-host-keys.service (the package's nginx.service.d/keel-web.conf),
-# since without the pair it starts on neither port.
+# keel-host-keys.service and keel-web-http.service (the package's
+# nginx.service.d/keel-web.conf): without the pair it starts on neither
+# port.
 #
 # The pages are /var/www/keel-default, a link the postinst makes to
 # /usr/share/keel-web/default-site (Debian policy keeps a package's files
@@ -42,10 +56,10 @@
 # postinst leaves one that is there alone.
 
 server {
-	listen [::]:80 default_server;
-	listen 0.0.0.0:80 default_server;
 	listen [::]:443 ssl default_server;
 	listen 0.0.0.0:443 ssl default_server;
+	listen [::1]:80 default_server;
+	listen 127.0.0.1:80 default_server;
 	http2 on;
 	server_name _;
 	server_tokens off;
@@ -62,17 +76,6 @@ server {
 	# Strict-Transport-Security once the confconsole Certificate screen has
 	# issued a CA's certificate through ACME; never over the self-signed one.
 
-	root /var/www/keel-default;
-	index index.html;
-
-	error_page 404 /404.html;
-	error_page 500 502 503 504 /50x.html;
-
-	# The routes of a stack layer (LNMP, LNPP: handbook decision 0059),
-	# each a location block in a file of /etc/nginx/keel-default.d/,
-	# included here and in the server behind Anubis (default-anubis).
-	include /etc/nginx/keel-default.d/*.conf;
-
 	location = /keel-health {
 		# try_files, not return, as keel-health.conf has it: return
 		# answers in the rewrite phase, before Coraza sees the request.
@@ -80,15 +83,22 @@ server {
 		try_files /.keel-health-is-no-file =204;
 	}
 
-	location = /404.html {
-		internal;
+	include /etc/nginx/snippets/keel-web-site.conf;
+}
+
+server {
+	listen [::]:80 default_server;
+	listen 0.0.0.0:80 default_server;
+	server_name _;
+	server_tokens off;
+
+	# http-redirect.conf while a CA's certificate is in place, else no file
+	include /etc/nginx/keel-web/http-*.conf;
+	include /etc/nginx/snippets/keel-web-acme.conf;
+
+	location = /keel-health {
+		try_files /.keel-health-is-no-file =204;
 	}
 
-	location = /50x.html {
-		internal;
-	}
-
-	location / {
-		try_files $uri $uri/ =404;
-	}
+	include /etc/nginx/snippets/keel-web-site.conf;
 }

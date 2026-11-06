@@ -1,0 +1,17 @@
+# keel-web: port 80 of the default site after the machine's certificate
+# (handbook decision 0079): /usr/lib/keel-web/http-mode serves the site on
+# port 80 while the certificate is self-signed, and redirects port 80 to
+# HTTPS when a certificate authority's is in place. At boot it runs after
+# keel-host-keys.service makes the certificate and before Nginx and Anubis
+# start; keel-web-http.path starts it again when the certificate changes.
+[Unit]
+Description=Keel Web: port 80 after the machine's certificate
+After=keel-host-keys.service
+Before=nginx.service anubis@keel.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/keel-web/http-mode
+
+[Install]
+WantedBy=multi-user.target

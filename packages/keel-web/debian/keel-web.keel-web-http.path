@@ -1,0 +1,13 @@
+# keel-web: starts keel-web-http.service when the machine's certificate
+# changes (handbook decision 0079): confconsole's dehydrated-wrapper
+# writes a certificate from ACME, keel apply makes a self-signed one again
+# (tls.acme.enabled false), or an operator replaces it.
+[Unit]
+Description=Keel Web: watch the machine's certificate for port 80
+
+[Path]
+PathChanged=/usr/local/share/ca-certificates/cert.crt
+Unit=keel-web-http.service
+
+[Install]
+WantedBy=multi-user.target
