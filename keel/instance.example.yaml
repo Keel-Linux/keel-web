@@ -1,0 +1,58 @@
+# Example instance description of Keel Web (format: docs/spec.md of the keel
+# repository), a simple installation (handbook decisions 0028 and 0076):
+# nginx serves the default site on 80 and 443. Copy it to
+# /etc/keel/instance.yaml before the first boot, and make the secret file,
+# mode 0600, owned by root:
+#
+#   /etc/keel/secrets/root_password   the root password, for SSH and Webmin
+#
+# The first boot then asks nothing. Without this file it asks the root
+# password, the installation mode and the alert address at a console, or
+# keel-init asks them at the first login.
+#
+# The overlays are every overlay of the chain, Core's five and Web's four,
+# at their state in the simple column of the manifests.
+version: 1
+
+instance:
+  hostname: web
+  fqdn: web.example.org
+
+network:
+  managed_by: host
+  interfaces:
+    eth0:
+      ipv6:
+        method: auto
+
+tls:
+  acme:
+    enabled: false
+
+appliance:
+  name: web
+installation:
+  mode: simple
+overlays:
+  installer: enabled
+  wireguard: disabled
+  etcd: disabled
+  crowdsec: disabled
+  vip: disabled
+  nginx: enabled
+  coraza: disabled
+  anubis: disabled
+  syncthing: disabled
+
+secrets:
+  root_password:
+    file: /etc/keel/secrets/root_password
+
+hub:
+  api_key: skip
+
+security:
+  alerts: admin@example.org
+  updates_at_first_boot: skip
+
+first_login_wizard: false
