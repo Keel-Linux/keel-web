@@ -189,9 +189,12 @@ listed() {
     [ "$output" = $'[Unit]\nAfter=keel-web-http.service\n[Service]\nEnvironmentFile=-/etc/anubis/keel-web-http.env' ]
 }
 
-@test "anubis-http.env turns Secure off and SameSite to Lax, nothing else" {
+# Chrome refuses a Partitioned cookie without Secure (CHIPS), and Anubis
+# sets Partitioned by default: the commissioning run's Chromium got "Your
+# browser is configured to disable cookies" (BR1 and BR2, 2026-11-06).
+@test "anubis-http.env turns Secure and Partitioned off and SameSite to Lax, nothing else" {
     run grep -v -e '^#' -e '^$' "$BUILD/root/usr/share/keel-web/anubis-http.env"
-    [ "$output" = $'COOKIE_SECURE=false\nCOOKIE_SAME_SITE=Lax' ]
+    [ "$output" = $'COOKIE_SECURE=false\nCOOKIE_SAME_SITE=Lax\nCOOKIE_PARTITIONED=false' ]
 }
 
 @test "http-redirect.conf redirects every path but ACME's http-01 challenges to HTTPS" {
