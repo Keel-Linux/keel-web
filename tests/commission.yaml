@@ -95,6 +95,9 @@ screenshots:
     url: /
     login: {user_field: 'input[name=user]', user: root, password_field: 'input[name=pass]', secret: root, submit: 'button[type=submit]'}
     wait: 8
+    # the shot waits for the dashboard, which comes after the page
+    # (VMs of BR2, 2026-11-06)
+    text: System hostname
 
 # The cloud modes (decision 0076): cloud simple is a primary on BR1 and a
 # replica on BR2. The prompts are the titles of the confconsole screens,
