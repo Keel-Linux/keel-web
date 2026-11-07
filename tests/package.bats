@@ -702,6 +702,28 @@ machine_cert() {
     done
 }
 
+# Static files pass the front without the Anubis challenge, only when
+# Nginx serves them as files from the disk (2026-11-07). The application
+# layer sets their root with a file in /etc/nginx/keel-static.d/, which
+# ships empty.
+@test "static: the include directory keel-static.d is shipped, empty, a directory of root's" {
+    run listed "etc/nginx/keel-static.d/"
+    [ "$status" -eq 0 ]
+    [[ "$output" == "drwxr-xr-x root/root "* ]]
+    run bash -c "dpkg-deb -c '$DEB' | awk '{print \$6}' | grep '^./etc/nginx/keel-static.d/.'"
+    [ "$output" = "" ]
+}
+
+@test "static: the front serves a file of the list from the disk, else Anubis, and never a .php path" {
+    local front="$PACKAGE_DIR/nginx/keel-web-front.conf"
+    run awk '/^location ~\* /,/^}/' "$front"
+    [[ "$output" == *$'\tinclude /etc/nginx/keel-static.d/*.conf;'* ]]
+    [[ "$output" == *$'\ttry_files $uri @keel-anubis;'* ]]
+    [[ "$output" != *php* ]]
+    run awk '/^location @keel-anubis/,/^}/' "$front"
+    [[ "$output" == *$'\tinclude /etc/nginx/snippets/keel-anubis.conf;'* ]]
+}
+
 @test "front: the server behind Anubis and the default site do not include keel-front.d" {
     run awk '/listen unix:\/run\/nginx\/keel-app.sock;/,0' "$PACKAGE_DIR/default-anubis"
     [[ "$output" != *keel-front* ]]
@@ -844,9 +866,12 @@ machine_cert() {
     [ "$output" = 0 ]
 }
 
-@test "front: every request on 80 and 443 goes through the overlay's Anubis snippet" {
+# Every request on 80 and 443 goes through Anubis, except a static file
+# that Nginx serves from the disk (2026-11-07): the location of the static
+# files falls back to @keel-anubis, the second include of the snippet.
+@test "front: every request on 80 and 443 but a static file on the disk goes through the overlay's Anubis snippet" {
     run grep -c 'include /etc/nginx/snippets/keel-anubis.conf;' "$PACKAGE_DIR/nginx/keel-web-front.conf"
-    [ "$output" = 1 ]
+    [ "$output" = 2 ]
     run awk '/^location \/ \{/,/^}/' "$PACKAGE_DIR/nginx/keel-web-front.conf"
     [[ "$output" == *'include /etc/nginx/snippets/keel-anubis.conf;'* ]]
     run grep -c $'^\tinclude /etc/nginx/snippets/keel-web-front.conf;$' "$PACKAGE_DIR/default-anubis"

@@ -481,6 +481,40 @@ put_route() {
     systemctl reload nginx.service
 }
 
+# Static files (2026-11-07): Anubis is not running here, so an answer
+# of 502 says that the front gave the request to Anubis, and 200 says
+# that Nginx served the file from the disk without Anubis.
+@test "behind Anubis, a static file on the disk is served without Anubis; a .php path, a missing file and a hidden path go to Anubis" {
+    local root=/var/www/keel-web-static-test conf=/etc/nginx/keel-static.d/zz-keel-web-test.conf
+    mkdir -p "$root/css" "$root/.git"
+    echo 'body { color: red; }' > "$root/css/site.css"
+    echo 'body { color: red; }' > "$root/.git/x.css"
+    echo '<?php echo 1;' > "$root/index.php"
+    run "$HOOK" enabled
+    [ "$status" -eq 0 ]
+    # the default root: /var/www/keel-default has no such file
+    eventually_code 502 "https://$HOST/css/site.css"
+    echo "root $root;" > "$conf"
+    nginx -t
+    systemctl reload nginx.service
+    eventually_code 200 "https://$HOST/css/site.css"
+    run curl -sk -o /dev/null -w '%{content_type}' "https://$HOST/css/site.css"
+    [[ "$output" == text/css* ]]
+    [ "$(body "https://$HOST/css/site.css")" = 'body { color: red; }' ]
+    [ "$(code "http://$HOST/css/site.css")" = 200 ]
+    [ "$(code "https://$HOST/css/missing.css")" = 502 ]
+    [ "$(code "https://$HOST/index.php")" = 502 ]
+    [ "$(code "https://$HOST/index.php/css/site.css")" = 502 ]
+    [ "$(code "https://$HOST/index.php?f=/css/site.css")" = 502 ]
+    [ "$(code "https://$HOST/css/site.css.php")" = 502 ]
+    [ "$(code "https://$HOST/.git/x.css")" = 502 ]
+    [ "$(code "https://$HOST/css/")" = 502 ]
+    rm -rf "$conf" "$root"
+    run "$HOOK" disabled
+    [ "$status" -eq 0 ]
+    systemctl reload nginx.service
+}
+
 # remove and reinstall: the pages leave with the package, so its sites
 # leave sites-enabled and Debian's default site comes back; a reinstall
 # puts the default site in again
