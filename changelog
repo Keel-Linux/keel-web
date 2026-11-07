@@ -1,3 +1,44 @@
+keel-web-19.0 (12) keel; urgency=medium
+
+  * The release after Stable 1. 19.0-10 and 19.0-11 were built from the
+    branch stable-1, so their entries are copied below; this version is
+    above both (decision 0043: a release name is never used again).
+  * keel-web 0.4.1: port 80 serves the application while the certificate
+    of the machine is self-signed, and redirects to HTTPS when a
+    certificate authority's certificate is in place, except
+    /.well-known/acme-challenge/ (decision 0079). Anubis cookies over plain
+    HTTP are not Secure and not Partitioned, so a browser keeps them.
+  * tests/commission.yaml: the commissioning contract of decision 0075,
+    with the cloud simple and cloud advanced modes of decision 0076.
+
+ -- KeelLinux maintainers <admin@keellinux.org>  Sat, 07 Nov 2026 02:40:00 +0000
+
+keel-web-19.0 (11) keel; urgency=medium
+
+  * Stable 1 refresh of 2026-10-30 (decision 0073). The image is built again
+    from the pool stable-1 (apt#88) with the Debian security fixes of
+    2026-10-30: nginx (DSA-6575), bind9 (DSA-6576), php8.4 (DSA-6574),
+    imagemagick (DSA-6593), libheif (DSA-6583), brotli (DSA-6582),
+    ca-certificates (DSA-6572) and tzdata 2026f. It carries keel 0.23.67: a
+    MariaDB primary does not accept a write before its replica connects
+    (keel#242), and the manifest adds state.replicate of a base to that of
+    the application (keel#246). It also carries inithooks 2.3.6+keel35 and
+    confconsole 2.2.3+keel19.
+
+ -- KeelLinux maintainers <admin@keellinux.org>  Fri, 30 Oct 2026 19:43:13 +0000
+
+keel-web-19.0 (10) keel; urgency=low
+
+  * Stable 1, the first stable release (handbook
+    docs/releases/stable-1-plan.md). The image is built on the stable
+    track: it reads trixie of archive.keellinux.org and not
+    trixie-testing. It carries keel 0.23.55 and keel-web 0.3.6. The
+    syncthing overlay and the default replicate path of decision 0068 are
+    in the image. File replication runs in the cloud modes (keel#221,
+    keel#224, keel#225, keel#228).
+
+ -- KeelLinux maintainers <admin@keellinux.org>  Sat, 25 Oct 2026 18:00:00 +0000
+
 keel-web-19.0 (9) keel; urgency=low
 
   * keel-web 0.3.3: it needs keel-overlay-anubis 0.1.1, so a WebSocket
