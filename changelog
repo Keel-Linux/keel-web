@@ -1,3 +1,17 @@
+keel-web-19.0 (13) keel; urgency=medium
+
+  * keel-web 0.4.2 (keel-web#32): the Anubis front serves a static file
+    (CSS, JavaScript, an image or a font, by a fixed list of extensions)
+    without the challenge, but only when it is a file on the disk. Any
+    other path, and each .php path, goes through Anubis. Anubis answered a
+    request without its cookie with the challenge page, also for a style
+    sheet (WordPress replica of a cloud pair, BR2, 2026-11-07). The new
+    directory /etc/nginx/keel-static.d/ ships empty: the application layer
+    sets the root of its static files there.
+  * 19.0-12 was not released: this version is above it (decision 0043).
+
+ -- KeelLinux maintainers <admin@keellinux.org>  Mon, 09 Nov 2026 12:00:00 +0000
+
 keel-web-19.0 (12) keel; urgency=medium
 
   * The release after Stable 1. 19.0-10 and 19.0-11 were built from the
