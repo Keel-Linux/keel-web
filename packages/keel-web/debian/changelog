@@ -1,3 +1,17 @@
+keel-web (0.4.2) trixie; urgency=medium
+
+  * The Anubis front serves a static file (CSS, JavaScript, an image or a
+    font, by a fixed list of extensions) without the challenge, but only
+    when it is a file on the disk: try_files, else Anubis. A .php path, a
+    path that is not a file and a path with a hidden part go through
+    Anubis as before. Anubis answers a request without its cookie with
+    the challenge page, status 200, also for a stylesheet (WordPress
+    replica of a cloud pair, BR2, 2026-11-07).
+  * New directory /etc/nginx/keel-static.d/, which ships empty. The
+    application layer sets the root of the static files there, once.
+
+ -- KeelLinux maintainers <admin@keellinux.org>  Sat, 07 Nov 2026 12:00:00 +0000
+
 keel-web (0.4.1) trixie; urgency=medium
 
   * anubis-http.env sets COOKIE_PARTITIONED=false too. Chrome refuses a

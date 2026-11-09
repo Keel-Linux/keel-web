@@ -51,6 +51,15 @@ larger limit, once, in a file there. The directory ships empty. Coraza reads no 
 upload as an argument (keel-overlay-coraza 0.1.4), so the size of an
 upload does not change the memory of a worker.
 
+In the cloud modes the front serves a static file without the Anubis
+challenge, but only when Nginx finds it as a file on the disk: a path that
+ends in one extension of a fixed list (CSS, JavaScript, images, fonts) and
+has no hidden part. Any other path, and each ``.php`` path, goes through
+Anubis. The root of these files is ``/var/www/keel-default`` unless a file
+of ``/etc/nginx/keel-static.d/`` sets it: the application layer puts its
+document root there, once (Nginx refuses a second root). The directory
+ships empty.
+
 Both sites serve HTTPS on 443 with the machine's certificate, the
 ``default`` certificate of decision 0042 as ``turnkey-make-ssl-cert
 --default`` writes it (``/etc/ssl/private/cert.pem``, ``cert.key`` and
