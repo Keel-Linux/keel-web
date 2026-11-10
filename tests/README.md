@@ -27,7 +27,12 @@ completes headless from an instance spec, and the machine matches the spec.
   CA's own name; no certificate and a file that is no certificate; the
   links made and removed, Nginx tested and reloaded only when it runs,
   the rollback when `nginx -t` or the reload fails, Anubis restarted only
-  when it runs, and a file of the operator's left alone.
+  when it runs, and a file of the operator's left alone. Also the two
+  links of the ACME challenges (keel-web 0.4.3): each is removed when a
+  route of its site (`keel-default.d`, `keel-front.d`) has its own prefix
+  location for `/.well-known/acme-challenge`, and not for a commented
+  line, an exact location, a regular expression or a file that is not
+  `*.conf`; every link put back when `nginx -t` or the reload fails.
 - `image-conf.bats`: unit tests of `conf.d/main`, run against a scratch
   tree named by `KEEL_CONF_ROOT`.
 - `package.bats`: builds `packages/keel-web` with `dpkg-buildpackage` and

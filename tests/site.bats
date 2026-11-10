@@ -29,6 +29,9 @@ RECORD=/var/lib/keel-web/debian-default-unlinked
 CERT=/usr/local/share/ca-certificates/cert.crt
 DROPIN=/usr/lib/systemd/system/nginx.service.d/keel-web.conf
 REDIRECT=/etc/nginx/keel-web/http-redirect.conf
+SITE_ACME=/etc/nginx/keel-web/site-acme.conf
+FRONT_ACME=/etc/nginx/keel-web/front-acme.conf
+ACME_SNIPPET=/etc/nginx/snippets/keel-web-acme.conf
 ANUBIS_ENV=/etc/anubis/keel-web-http.env
 
 setup_file() {
@@ -143,6 +146,9 @@ nothing_at() {
     systemctl is-enabled keel-web-http.service
     nothing_at "$REDIRECT"
     [ "$(readlink "$ANUBIS_ENV")" = /usr/share/keel-web/anubis-http.env ]
+    # keel-web 0.4.3: no route has its own challenge location here
+    [ "$(readlink "$SITE_ACME")" = "$ACME_SNIPPET" ]
+    [ "$(readlink "$FRONT_ACME")" = "$ACME_SNIPPET" ]
 }
 
 @test "Debian's default site is disabled, its file kept, and the removal recorded" {
@@ -513,6 +519,159 @@ put_route() {
     run "$HOOK" disabled
     [ "$status" -eq 0 ]
     systemctl reload nginx.service
+}
+
+# keel-web 0.4.3: a route that serves ACME's challenge itself keeps it.
+# The route of keel-ntfy 19.0-5 (stable 1), a file of the image that no
+# package owns, has its own location for the challenge in keel-default.d.
+# With keel-web 0.4.0 to 0.4.2 the port 80 server had two such locations,
+# Nginx refused the configuration ("duplicate location") and did not
+# start. Here the route is byte for byte the image's, with the two maps of
+# the image's conf.d/keel-ntfy.conf and a stand-in for its proxy snippet
+# (ntfy does not run here).
+NTFY_ROUTE=/etc/nginx/keel-default.d/60-keel-ntfy.conf
+NTFY_MAPS=/etc/nginx/conf.d/keel-ntfy.conf
+NTFY_PROXY=/etc/nginx/snippets/keel-ntfy-proxy.conf
+
+put_ntfy() {
+    cat > "$NTFY_MAPS" <<'MAPS'
+map $http_upgrade $keel_ntfy_connection {
+	default upgrade;
+	'' close;
+}
+
+map $server_addr $keel_ntfy_proto {
+	default $scheme;
+	~^unix: https;
+}
+
+map $keel_ntfy_proto $keel_ntfy_plain {
+	default 0;
+	http 1;
+}
+MAPS
+    printf 'return 200 "ntfy stand-in\\n";\n' > "$NTFY_PROXY"
+    cat > "$NTFY_ROUTE" <<'ROUTE'
+# keel-ntfy: the route of ntfy (handbook decision 0063), as the image of
+# 19.0-5 has it
+location ^~ /.well-known/acme-challenge/ {
+	try_files $uri =404;
+}
+
+location ~ ^/ {
+	if ($keel_ntfy_plain) {
+		return 301 https://$host$request_uri;
+	}
+	client_max_body_size 1m;
+	include /etc/nginx/snippets/keel-ntfy-proxy.conf;
+}
+ROUTE
+}
+
+# what the configuration of keel-web 0.4.2 did with that route: the
+# challenge location of keel-web in the same server
+@test "the route of keel-ntfy beside keel-web's challenge location is a duplicate that nginx -t refuses" {
+    put_ntfy
+    [ "$(readlink "$SITE_ACME")" = "$ACME_SNIPPET" ]
+    run nginx -t
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"duplicate location"* ]]
+}
+
+# an upgrade, as the package is installed again: the postinst restarts
+# keel-web-http.service, whose http-mode removes the link and reloads
+# Nginx before the nginx-reload trigger reloads it
+@test "the package installed with that route: the link goes, nginx -t passes, Nginx runs" {
+    [ -f "$DEB" ]
+    run dpkg -i "$DEB"
+    [ "$status" -eq 0 ]
+    nothing_at "$SITE_ACME"
+    [ "$(readlink "$FRONT_ACME")" = "$ACME_SNIPPET" ]
+    run nginx -t
+    [ "$status" -eq 0 ]
+    systemctl is-active nginx.service
+    run journalctl -u keel-web-http.service --no-pager -n 20
+    [[ "$output" == *"$NTFY_ROUTE serves ACME's challenge itself: $SITE_ACME is not linked"* ]]
+}
+
+# at boot and at each start of Nginx: http-mode runs first, while Nginx
+# does not run, so a link that is there by mistake goes before Nginx reads
+# it
+@test "a restart of Nginx with that route: http-mode removes the link first, and Nginx starts" {
+    ln -s "$ACME_SNIPPET" "$SITE_ACME"
+    run nginx -t
+    [ "$status" -ne 0 ]
+    systemctl restart nginx.service
+    systemctl is-active nginx.service
+    nothing_at "$SITE_ACME"
+    run nginx -t
+    [ "$status" -eq 0 ]
+    # the route serves the challenge on port 80, from the site's root, and
+    # every other path of port 80 goes to HTTPS, as keel-ntfy has it
+    eventually_code 404 "http://$HOST/.well-known/acme-challenge/no-such-token"
+    [ "$(code "http://$HOST/x")" = 301 ]
+    [ "$(body "https://$HOST/x")" = "ntfy stand-in" ]
+    [ "$(code "https://$HOST/keel-health")" = 204 ]
+}
+
+# The answer to a missing challenge on that route with a CA's certificate
+# is written to the log, not asserted: =404 runs the site's error_page,
+# an internal redirect that the server-level redirect of
+# http-redirect.conf sees again. The route is the image's, not keel-web's.
+@test "with that route and a CA's certificate: Nginx accepts the redirect, and the route keeps the challenge" {
+    put_issued_cert
+    eventually_redirects
+    run nginx -t
+    [ "$status" -eq 0 ]
+    nothing_at "$SITE_ACME"
+    eventually_code 301 "http://$HOST/x"
+    echo "# measured: a missing challenge on the route of keel-ntfy with a CA's certificate answers $(code "http://$HOST/.well-known/acme-challenge/no-such-token")" >&3
+    cp "$BATS_FILE_TMPDIR/self-signed.crt" "$CERT"
+    eventually_serves
+}
+
+# every other appliance: no such route, and port 80 is as with 0.4.2
+@test "the route gone: a restart of Nginx links keel-web's challenge location again, and it serves the challenge" {
+    rm -f "$NTFY_ROUTE" "$NTFY_MAPS" "$NTFY_PROXY"
+    systemctl restart nginx.service
+    systemctl is-active nginx.service
+    [ "$(readlink "$SITE_ACME")" = "$ACME_SNIPPET" ]
+    run nginx -t
+    [ "$status" -eq 0 ]
+    mkdir -p /var/lib/dehydrated/acme-challenges
+    echo token-value > /var/lib/dehydrated/acme-challenges/site-test-token
+    eventually_code 200 "http://$HOST/.well-known/acme-challenge/site-test-token"
+    [ "$(body "http://$HOST/.well-known/acme-challenge/site-test-token")" = token-value ]
+    [ "$(code "http://$HOST/.well-known/acme-challenge/no-such-token")" = 404 ]
+    rm -f /var/lib/dehydrated/acme-challenges/site-test-token
+    [ "$(code "http://$HOST/")" = 200 ]
+}
+
+# the front: its port 80 server includes keel-front.d, so a route there
+# with its own challenge location keeps it
+@test "behind Anubis, a route in keel-front.d with its own challenge location keeps it, and Nginx starts" {
+    local file=/etc/nginx/keel-front.d/zz-keel-web-acme-test.conf
+    run "$HOOK" enabled
+    [ "$status" -eq 0 ]
+    front_linked
+    printf 'location ^~ /.well-known/acme-challenge/ {\n\treturn 200 "front route\\n";\n}\n' > "$file"
+    run nginx -t
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"duplicate location"* ]]
+    systemctl restart nginx.service
+    systemctl is-active nginx.service
+    nothing_at "$FRONT_ACME"
+    [ "$(readlink "$SITE_ACME")" = "$ACME_SNIPPET" ]
+    eventually_code 200 "http://$HOST/.well-known/acme-challenge/x"
+    [ "$(body "http://$HOST/.well-known/acme-challenge/x")" = "front route" ]
+    rm -f "$file"
+    systemctl restart nginx.service
+    [ "$(readlink "$FRONT_ACME")" = "$ACME_SNIPPET" ]
+    run "$HOOK" disabled
+    [ "$status" -eq 0 ]
+    site_linked
+    run nginx -t
+    [ "$status" -eq 0 ]
 }
 
 # remove and reinstall: the pages leave with the package, so its sites

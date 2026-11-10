@@ -51,7 +51,8 @@ setup() {
     T=$(mktemp -d)
     N="$T/nginx"
     SHARE="$T/share"
-    mkdir -p "$N" "$SHARE" "$T/bin" "$T/anubis"
+    mkdir -p "$N/snippets" "$SHARE" "$T/bin" "$T/anubis"
+    echo "# acme" > "$N/snippets/keel-web-acme.conf"
     echo "# redirect" > "$SHARE/http-redirect.conf"
     echo "COOKIE_SECURE=false" > "$SHARE/anubis-http.env"
     export KEEL_NGINX_DIR="$N" KEEL_WEB_SHARE="$SHARE"
@@ -62,11 +63,15 @@ setup() {
     export CALLS="$T/calls"
     : > "$CALLS"
     # nginx: -t fails while $T/t-fails exists, -s reload while
-    # $T/reload-fails does; both log whether the redirect was linked
+    # $T/reload-fails does; both log whether the redirect was linked, and
+    # which challenge links were there
     cat > "$T/bin/nginx" <<'STUB'
 #!/bin/bash
 state=serve
 [ -L "$KEEL_NGINX_DIR/keel-web/http-redirect.conf" ] && state=redirect
+for acme in site front; do
+    [ -L "$KEEL_NGINX_DIR/keel-web/$acme-acme.conf" ] && state="$state,$acme"
+done
 echo "nginx $* [$state]" >> "$CALLS"
 [ "$1" = -t ] && [ -e "$STUB_DIR/t-fails" ] && { echo "nginx: [emerg] test failed" >&2; exit 1; }
 [ "$1" = -s ] && [ -e "$STUB_DIR/reload-fails" ] && { echo "nginx: [error] reload failed" >&2; exit 1; }
@@ -99,6 +104,19 @@ nginx_runs() {
 redirect_linked() {
     [ "$(readlink "$N/keel-web/http-redirect.conf")" = "$SHARE/http-redirect.conf" ]
 }
+
+# the challenge link of SITE (site or front) points to keel-web's snippet
+acme_linked() {
+    [ "$(readlink "$N/keel-web/$1-acme.conf")" = "$N/snippets/keel-web-acme.conf" ]
+}
+
+# a route file in DIR (keel-default.d or keel-front.d) with the text TEXT
+route() {
+    mkdir -p "$N/$1"
+    printf '%s\n' "$3" > "$N/$1/$2"
+}
+
+NTFY_ROUTE=$'location ^~ /.well-known/acme-challenge/ {\n\ttry_files $uri =404;\n}\n\nlocation ~ ^/ {\n\tinclude /etc/nginx/snippets/keel-ntfy-proxy.conf;\n}'
 
 anubis_linked() {
     [ "$(readlink "$KEEL_WEB_ANUBIS_ENV")" = "$SHARE/anubis-http.env" ]
@@ -206,7 +224,7 @@ issued_cert() {
     nginx_runs
     run bash "$SCRIPT"
     [ "$status" -eq 0 ]
-    [ "$(cat "$CALLS")" = $'nginx -t [redirect]\nnginx -s reload [redirect]' ]
+    [ "$(cat "$CALLS")" = $'nginx -t [redirect,site,front]\nnginx -s reload [redirect,site,front]' ]
 }
 
 @test "back to self-signed with Nginx running: the redirect goes, tested and reloaded" {
@@ -219,7 +237,7 @@ issued_cert() {
     [ "$status" -eq 0 ]
     nothing_at "$N/keel-web/http-redirect.conf"
     anubis_linked
-    [ "$(cat "$CALLS")" = $'nginx -t [serve]\nnginx -s reload [serve]\n'"$RESTART" ]
+    [ "$(cat "$CALLS")" = $'nginx -t [serve,site,front]\nnginx -s reload [serve,site,front]\n'"$RESTART" ]
 }
 
 @test "a link to an older file is pointed to the package's file again" {
@@ -297,4 +315,151 @@ issued_cert() {
     [ "$status" -eq 0 ]
     redirect_linked
     [ ! -s "$CALLS" ]
+}
+
+# the challenge links (0.4.3): a route that serves ACME's challenge
+# itself keeps it
+
+@test "no route serves the challenge: both sites link keel-web's challenge location" {
+    run bash "$SCRIPT"
+    [ "$status" -eq 0 ]
+    acme_linked site
+    acme_linked front
+    [[ "$output" != *"serves ACME's challenge itself"* ]]
+}
+
+@test "routes with no challenge location of their own: both links stay" {
+    route keel-default.d 50-php.conf $'location ~ \\.php$ {\n\treturn 404;\n}'
+    route keel-front.d 50-up.conf 'client_max_body_size 8m;'
+    run bash "$SCRIPT"
+    [ "$status" -eq 0 ]
+    acme_linked site
+    acme_linked front
+}
+
+@test "the old route of keel-ntfy in keel-default.d: the default site's link goes, the front's stays" {
+    route keel-default.d 60-keel-ntfy.conf "$NTFY_ROUTE"
+    run bash "$SCRIPT"
+    [ "$status" -eq 0 ]
+    nothing_at "$N/keel-web/site-acme.conf"
+    acme_linked front
+    [[ "$output" == *"keel-web: $N/keel-default.d/60-keel-ntfy.conf serves ACME's challenge itself: $N/keel-web/site-acme.conf is not linked"* ]]
+    [ "$(grep -c "serves ACME's challenge itself" <<< "$output")" = 1 ]
+}
+
+@test "a prefix location without ^~ and without the last slash counts too" {
+    route keel-default.d 70-a.conf $'  location /.well-known/acme-challenge {\n\treturn 404;\n}'
+    route keel-front.d 70-b.conf $'location\t^~\t/.well-known/acme-challenge/{ return 404; }'
+    run bash "$SCRIPT"
+    [ "$status" -eq 0 ]
+    nothing_at "$N/keel-web/site-acme.conf"
+    nothing_at "$N/keel-web/front-acme.conf"
+}
+
+@test "a route in keel-front.d: the front's link goes, the default site's stays" {
+    route keel-front.d 60-app.conf $'location ^~ /.well-known/acme-challenge/ {\n\treturn 404;\n}'
+    run bash "$SCRIPT"
+    [ "$status" -eq 0 ]
+    acme_linked site
+    nothing_at "$N/keel-web/front-acme.conf"
+    [[ "$output" == *"$N/keel-front.d/60-app.conf serves ACME's challenge itself: $N/keel-web/front-acme.conf is not linked"* ]]
+}
+
+# not a duplicate for Nginx, and keel-web's ^~ prefix wins over both
+@test "a commented location, an exact location and a regular expression do not count" {
+    route keel-default.d 60-a.conf $'# location ^~ /.well-known/acme-challenge/ {\n\t#location /.well-known/acme-challenge/ {'
+    route keel-default.d 60-b.conf $'location = /.well-known/acme-challenge/ {\n\treturn 404;\n}'
+    route keel-front.d 60-c.conf $'location ~ ^/\\.well-known/acme-challenge/ {\n\treturn 404;\n}'
+    run bash "$SCRIPT"
+    [ "$status" -eq 0 ]
+    acme_linked site
+    acme_linked front
+}
+
+@test "a file that Nginx does not include (not *.conf) does not count" {
+    route keel-default.d 60-keel-ntfy.conf.dpkg-old "$NTFY_ROUTE"
+    route keel-front.d 60-off.conf.disabled "$NTFY_ROUTE"
+    mkdir -p "$N/keel-default.d/sub.conf"
+    run bash "$SCRIPT"
+    [ "$status" -eq 0 ]
+    acme_linked site
+    acme_linked front
+}
+
+@test "a route comes with Nginx running: the link goes, tested, then reloaded" {
+    bash "$SCRIPT"
+    nginx_runs
+    : > "$CALLS"
+    route keel-default.d 60-keel-ntfy.conf "$NTFY_ROUTE"
+    run bash "$SCRIPT"
+    [ "$status" -eq 0 ]
+    nothing_at "$N/keel-web/site-acme.conf"
+    [ "$(cat "$CALLS")" = $'nginx -t [serve,front]\nnginx -s reload [serve,front]' ]
+}
+
+@test "the route goes: keel-web's challenge location comes back" {
+    route keel-default.d 60-keel-ntfy.conf "$NTFY_ROUTE"
+    bash "$SCRIPT"
+    rm "$N/keel-default.d/60-keel-ntfy.conf"
+    nginx_runs
+    : > "$CALLS"
+    run bash "$SCRIPT"
+    [ "$status" -eq 0 ]
+    acme_linked site
+    [ "$(cat "$CALLS")" = $'nginx -t [serve,site,front]\nnginx -s reload [serve,site,front]' ]
+}
+
+@test "a challenge link to an older file is pointed to the snippet again" {
+    mkdir -p "$N/keel-web"
+    ln -s /nowhere "$N/keel-web/site-acme.conf"
+    run bash "$SCRIPT"
+    [ "$status" -eq 0 ]
+    acme_linked site
+}
+
+@test "nginx -t refuses: every link is put back as it was" {
+    bash "$SCRIPT"
+    ln -sfn /older "$N/keel-web/front-acme.conf"
+    issued_cert
+    route keel-default.d 60-keel-ntfy.conf "$NTFY_ROUTE"
+    nginx_runs
+    touch "$T/t-fails"
+    run bash "$SCRIPT"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"nginx -t refused the configuration"* ]]
+    nothing_at "$N/keel-web/http-redirect.conf"
+    acme_linked site
+    [ "$(readlink "$N/keel-web/front-acme.conf")" = /older ]
+    # Anubis is not touched after a refusal
+    anubis_linked
+}
+
+@test "a failed reload puts every link back and reloads again" {
+    route keel-front.d 60-app.conf $'location ^~ /.well-known/acme-challenge/ {\n\treturn 404;\n}'
+    bash "$SCRIPT"
+    rm "$N/keel-front.d/60-app.conf"
+    route keel-default.d 60-keel-ntfy.conf "$NTFY_ROUTE"
+    nginx_runs
+    : > "$CALLS"
+    touch "$T/reload-fails"
+    run bash "$SCRIPT"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"nginx -s reload failed"* ]]
+    acme_linked site
+    nothing_at "$N/keel-web/front-acme.conf"
+    [ "$(cat "$CALLS")" = $'nginx -t [serve,front]\nnginx -s reload [serve,front]\nnginx -s reload [serve,site]' ]
+}
+
+@test "a file of the operator's where a challenge link goes is left alone" {
+    local acme
+    for acme in site front; do
+        rm -rf "$N/keel-web"
+        mkdir -p "$N/keel-web"
+        echo "# the operator's" > "$N/keel-web/$acme-acme.conf"
+        run bash "$SCRIPT"
+        [ "$status" -eq 1 ]
+        [[ "$output" == *"$acme-acme.conf is not a link; it is left alone"* ]]
+        [ "$(cat "$N/keel-web/$acme-acme.conf")" = "# the operator's" ]
+        [ ! -s "$CALLS" ]
+    done
 }

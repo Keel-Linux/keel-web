@@ -2,9 +2,12 @@
 # /usr/lib/keel-web/http-mode
 #
 # Port 80 of Keel Web's default site after the machine's certificate
-# (handbook decision 0079). keel-web-http.service runs it at boot, after
-# keel-host-keys.service and before Nginx and Anubis start, and again each
-# time keel-web-http.path sees /usr/local/share/ca-certificates/cert.crt
+# (handbook decision 0079), and the location of ACME's http-01 challenges
+# on port 80 after the routes of the site (keel-web 0.4.3).
+# keel-web-http.service runs it at boot, after keel-host-keys.service and
+# before Nginx and Anubis start, at each start of Nginx, after each
+# installation or upgrade of the package, and again each time
+# keel-web-http.path sees /usr/local/share/ca-certificates/cert.crt
 # change: when confconsole's dehydrated-wrapper writes a certificate from
 # ACME, when keel apply makes a self-signed one again (tls.acme.enabled
 # false), or when an operator replaces it.
@@ -26,13 +29,32 @@
 # /usr/local/share/ca-certificates, so update-ca-certificates trusts the
 # self-signed certificate too.
 #
-# A changed link is tested with `nginx -t` and Nginx reloaded when it
-# runs; a refused test or a failed reload puts the link back and fails.
-# A changed Anubis link has a running anubis@keel.service restart. Nginx
-# wants keel-web-http.service (its drop-in), so each start of Nginx, the
-# restart of dehydrated-wrapper included, runs this first. A file
-# that is not a link where a link goes is the operator's: it is left
-# alone, and the run fails. Each link points to a file of the package.
+# The challenges: a route that serves ACME's challenge itself keeps it.
+# The public server on port 80 of each site includes one link to
+# /etc/nginx/snippets/keel-web-acme.conf, keel-web's own location for the
+# challenges: /etc/nginx/keel-web/site-acme.conf for the default site
+# (keel-default), /etc/nginx/keel-web/front-acme.conf for the Anubis front
+# (default-anubis). Each link is there unless a *.conf file of the routes
+# directory that the same server includes has a prefix location for
+# /.well-known/acme-challenge (with ^~ or without, with the last slash or
+# without): /etc/nginx/keel-default.d for the default site,
+# /etc/nginx/keel-front.d for the front. Nginx refuses two prefix
+# locations with one path ("duplicate location") and then does not start.
+# A commented line does not count. An exact location (=) and a regular
+# expression do not count: Nginx accepts them beside keel-web's ^~, and
+# keel-web's location wins. Each link is decided for its own site,
+# whichever site is enabled, so the anubis state hook can change the site
+# without this script.
+#
+# Changed links are tested with one `nginx -t` and Nginx reloaded once
+# when it runs; a refused test or a failed reload puts every link back as
+# it was and fails. A changed Anubis link has a running
+# anubis@keel.service restart. Nginx wants keel-web-http.service (its
+# drop-in), so each start of Nginx, the restart of dehydrated-wrapper
+# included, runs this first, while Nginx does not run: then nothing is
+# tested, and Nginx reads the links at its start. A file that is not a
+# link where a link goes is the operator's: it is left alone, and the run
+# fails. Each link points to a file of the package.
 #
 # Exit codes: 0 done or unchanged, 1 refused or rolled back, 2 usage.
 #
@@ -50,6 +72,12 @@ ANUBIS_UNIT=anubis@keel.service
 REDIRECT_LINK="$NGINX_DIR/keel-web/http-redirect.conf"
 REDIRECT_FILE="$SHARE/http-redirect.conf"
 ANUBIS_FILE="$SHARE/anubis-http.env"
+SITE_ACME_LINK="$NGINX_DIR/keel-web/site-acme.conf"
+FRONT_ACME_LINK="$NGINX_DIR/keel-web/front-acme.conf"
+ACME_FILE="$NGINX_DIR/snippets/keel-web-acme.conf"
+# a prefix location for the path of ACME's challenges, which is a
+# duplicate of keel-web's own location to Nginx
+CHALLENGE='^[[:space:]]*location[[:space:]]+(\^~[[:space:]]*)?/\.well-known/acme-challenge(/|[[:space:]{]|$)'
 
 say() {
     echo "keel-web: $*"
@@ -124,22 +152,68 @@ set_link() {
     echo changed
 }
 
-# the redirect, tested and reloaded when Nginx runs; rolled back on failure
+# the first *.conf file of the routes directory DIR that has its own
+# location for ACME's challenges; 1 when no file has one
+own_challenge() {
+    local file
+    for file in "$1"/*.conf; do
+        [ -f "$file" ] || continue
+        grep -qE "$CHALLENGE" "$file" || continue
+        echo "$file"
+        return 0
+    done
+    return 1
+}
+
+# yes when keel-web's challenge location goes in the site whose routes are
+# in DIR (its link LINK); no, said in one line, when a route has its own
+# (on stderr: stdout is the answer)
+acme_wanted() {
+    local route
+    if route="$(own_challenge "$1")"; then
+        say "$route serves ACME's challenge itself: $2 is not linked" >&2
+        echo no
+        return 0
+    fi
+    echo yes
+}
+
+# LINKS[i] points to FILES[i] or is gone, after WANTS[i]
+put_links() {
+    local i
+    for i in "${!LINKS[@]}"; do
+        set_link "${LINKS[$i]}" "${FILES[$i]}" "${WANTS[$i]}"
+    done
+}
+
+# every link as it was before this run
+restore_links() {
+    local i
+    for i in "${!LINKS[@]}"; do
+        rm -f "${LINKS[$i]}"
+        [ -z "${BEFORE[$i]}" ] || ln -sfn "${BEFORE[$i]}" "${LINKS[$i]}"
+    done
+}
+
+# the links Nginx reads, tested and reloaded when Nginx runs; every link
+# put back on failure
 apply_nginx() {
-    local want="$1" changed
-    changed="$(set_link "$REDIRECT_LINK" "$REDIRECT_FILE" "$want")"
+    local link changed
+    BEFORE=()
+    for link in "${LINKS[@]}"; do
+        BEFORE+=("$(readlink "$link" || true)")
+    done
+    changed="$(put_links)"
     [ -n "$changed" ] || return 0
     running || return 0
-    local undo=yes
-    [ "$want" = no ] || undo=no
     if ! nginx -t; then
-        set_link "$REDIRECT_LINK" "$REDIRECT_FILE" "$undo" >/dev/null
-        fail "nginx -t refused the configuration; the link $REDIRECT_LINK is put back"
+        restore_links
+        fail "nginx -t refused the configuration; the links in $NGINX_DIR/keel-web are put back"
     fi
     if ! nginx -s reload; then
-        set_link "$REDIRECT_LINK" "$REDIRECT_FILE" "$undo" >/dev/null
+        restore_links
         nginx -s reload || :
-        fail "nginx -s reload failed; the link $REDIRECT_LINK is put back"
+        fail "nginx -s reload failed; the links in $NGINX_DIR/keel-web are put back"
     fi
 }
 
@@ -157,17 +231,24 @@ apply_anubis() {
 }
 
 main() {
-    refuse_file "$REDIRECT_LINK"
-    refuse_file "$ANUBIS_LINK"
+    local link redirect=no anubis=yes
+    local mode="serves the site as 443 does: $CERT is self-signed or not there"
+    for link in "$REDIRECT_LINK" "$SITE_ACME_LINK" "$FRONT_ACME_LINK" "$ANUBIS_LINK"; do
+        refuse_file "$link"
+    done
     if issued; then
-        apply_nginx yes
-        apply_anubis no
-        say "port 80 redirects to HTTPS: $CERT is a certificate authority's"
-    else
-        apply_nginx no
-        apply_anubis yes
-        say "port 80 serves the site as 443 does: $CERT is self-signed or not there"
+        redirect=yes
+        anubis=no
+        mode="redirects to HTTPS: $CERT is a certificate authority's"
     fi
+    LINKS=("$REDIRECT_LINK" "$SITE_ACME_LINK" "$FRONT_ACME_LINK")
+    FILES=("$REDIRECT_FILE" "$ACME_FILE" "$ACME_FILE")
+    WANTS=("$redirect")
+    WANTS+=("$(acme_wanted "$NGINX_DIR/keel-default.d" "$SITE_ACME_LINK")")
+    WANTS+=("$(acme_wanted "$NGINX_DIR/keel-front.d" "$FRONT_ACME_LINK")")
+    apply_nginx
+    apply_anubis "$anubis"
+    say "port 80 $mode"
 }
 
 [ "$#" -eq 0 ] || {

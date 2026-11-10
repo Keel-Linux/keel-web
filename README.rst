@@ -114,7 +114,24 @@ self-signed one; the public server on port 80 of each site includes
 certificate is self-signed. For Anubis it links
 ``/etc/anubis/keel-web-http.env``, which ``anubis@keel.service`` reads
 after ``keel.env``. Each change is tested with ``nginx -t`` and Nginx is
-reloaded, or the link is put back; a running Anubis is restarted.
+reloaded, or every link is put back; a running Anubis is restarted.
+
+A route that serves the ACME challenge itself keeps it (keel-web 0.4.3).
+The public server on port 80 includes keel-web's location for
+``/.well-known/acme-challenge/`` (``/etc/nginx/snippets/keel-web-acme.conf``)
+through a link that ``http-mode`` makes: ``/etc/nginx/keel-web/site-acme.conf``
+for the default site and ``/etc/nginx/keel-web/front-acme.conf`` for the
+Anubis front. ``http-mode`` removes the link, and says so in one line,
+when a ``*.conf`` file of the routes directory of that site
+(``/etc/nginx/keel-default.d/`` for the default site,
+``/etc/nginx/keel-front.d/`` for the front) has a prefix location for
+``/.well-known/acme-challenge`` (with ``^~`` or without). Nginx refuses
+two such locations in one server ("duplicate location") and does not
+start. A commented line, an exact location (``=``) and a regular
+expression do not count. The route of keel-ntfy 19.0-5 is such a route.
+The postinst runs ``http-mode`` (it restarts ``keel-web-http.service``)
+before the ``nginx-reload`` trigger reloads Nginx, and each start of
+Nginx runs it first, so an upgrade and a boot see the right links.
 
 The loopback addresses of port 80, ``[::1]:80`` and ``127.0.0.1:80``,
 belong to the sites, which take them as ``default_server`` from the server
@@ -126,7 +143,8 @@ application, for the manifest's check. Behind Anubis, ``/keel-health``
 answers the loopback only (403 to other clients). The content of the
 sites is in three snippets in ``/etc/nginx/snippets/``:
 ``keel-web-site.conf`` (the pages and the routes), ``keel-web-front.conf``
-(the Anubis front) and ``keel-web-acme.conf`` (the ACME challenges).
+(the Anubis front) and ``keel-web-acme.conf`` (the ACME challenges,
+through the links of ``http-mode``).
 
 The project's contributions to this repository are licensed
 GPL-3.0-or-later (``LICENSE``; project decision 0007). The organization

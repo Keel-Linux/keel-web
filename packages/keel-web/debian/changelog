@@ -1,3 +1,30 @@
+keel-web (0.4.3) trixie; urgency=medium
+
+  * A route that serves the ACME challenge itself keeps it. The public
+    server on port 80 no longer includes keel-web-acme.conf by its path.
+    It includes a link that http-mode makes:
+    /etc/nginx/keel-web/site-acme.conf for the default site and
+    /etc/nginx/keel-web/front-acme.conf for the Anubis front. http-mode
+    removes the link, and says so in one line, when a *.conf file of the
+    routes directory of the site (keel-default.d, keel-front.d) has a
+    prefix location for /.well-known/acme-challenge. A commented line, an
+    exact location and a regular expression do not count.
+  * This fixes keel-ntfy 19.0-5 after an upgrade to keel-web 0.4.x. Its
+    route in keel-default.d has its own challenge location, so the port 80
+    server had two, Nginx refused the configuration ("duplicate
+    location") and did not start at the next restart or boot.
+  * The links change before Nginx reloads: the postinst restarts
+    keel-web-http.service, and the nginx-reload trigger comes after it.
+    Each start of Nginx runs http-mode first. One nginx -t tests all the
+    changed links, and a refused test or a failed reload puts every link
+    back as it was. The postrm removes the two new links.
+  * keel-web-http.service has no start limit (StartLimitIntervalSec=0).
+    Nginx only wants it, so after five starts in 10 s systemd refused the
+    service and started Nginx on links that no run of http-mode made (the
+    site job, after some quick restarts of Nginx).
+
+ -- KeelLinux maintainers <admin@keellinux.org>  Tue, 10 Nov 2026 12:00:00 +0000
+
 keel-web (0.4.2) trixie; urgency=medium
 
   * The Anubis front serves a static file (CSS, JavaScript, an image or a
