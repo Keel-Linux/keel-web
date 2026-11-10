@@ -4,10 +4,15 @@
 # HTTPS when a certificate authority's is in place. At boot it runs after
 # keel-host-keys.service makes the certificate and before Nginx and Anubis
 # start; keel-web-http.path starts it again when the certificate changes.
+# Each start of Nginx runs it first (Nginx's drop-in wants it), also the
+# links of ACME's challenges (keel-web 0.4.3). No start limit: Nginx only
+# wants this service, so a start that systemd refused after some quick
+# restarts let Nginx start on links that no run of http-mode made.
 [Unit]
 Description=Keel Web: port 80 after the machine's certificate
 After=keel-host-keys.service
 Before=nginx.service anubis@keel.service
+StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot

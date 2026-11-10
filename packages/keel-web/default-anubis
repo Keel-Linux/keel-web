@@ -26,6 +26,16 @@
 # again: port 80 redirects to HTTPS (0042, redirect_http), except ACME's
 # http-01 challenges.
 #
+# ACME's http-01 challenges on port 80 (keel-web 0.4.3): http-mode links
+# /etc/nginx/keel-web/front-acme.conf to keel-web's own location for them,
+# /etc/nginx/snippets/keel-web-acme.conf, unless a file of
+# /etc/nginx/keel-front.d (which this server includes through
+# keel-web-front.conf) has a prefix location for
+# /.well-known/acme-challenge: a route that serves the challenge itself
+# keeps it, and Nginx refuses two such locations in one server. The routes
+# of keel-default.d are in the server on keel-app.sock, not here, so they
+# do not count for this site.
+#
 # The loopback addresses of port 80 are this site's (default_server), not
 # those of keel-overlay-nginx's conf.d/keel-health.conf, which listens
 # there too and gets only a request with no Host. They share the server of
@@ -58,7 +68,9 @@ server {
 
 	# http-redirect.conf while a CA's certificate is in place, else no file
 	include /etc/nginx/keel-web/http-*.conf;
-	include /etc/nginx/snippets/keel-web-acme.conf;
+	# front-acme.conf, keel-web's location for ACME's challenges, unless a
+	# route of keel-front.d has its own; else no file
+	include /etc/nginx/keel-web/front-acme*.conf;
 
 	include /etc/nginx/snippets/keel-web-front.conf;
 }

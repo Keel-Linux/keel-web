@@ -171,6 +171,17 @@ listed() {
     [[ "$output" == *'WantedBy=multi-user.target'* ]]
 }
 
+# Each start of Nginx runs the service first. Nginx only wants it, so a
+# start that systemd refuses (StartLimitBurst, 5 in 10 s by default)
+# lets Nginx start on links that no run of http-mode made: the site job
+# saw Nginx fail on a duplicate location after some quick restarts
+# (keel-web 0.4.3).
+@test "keel-web-http.service has no start limit: each start of Nginx runs http-mode" {
+    local unit="$BUILD/root/usr/lib/systemd/system/keel-web-http.service"
+    run grep -v -e '^#' -e '^$' "$unit"
+    [[ "$output" == *$'[Unit]\n'*$'StartLimitIntervalSec=0\n'*$'[Service]'* ]]
+}
+
 @test "keel-web-http.path starts the service when the machine's certificate changes" {
     local unit="$BUILD/root/usr/lib/systemd/system/keel-web-http.path"
     grep -qx 'PathChanged=/usr/local/share/ca-certificates/cert.crt' "$unit"
@@ -216,20 +227,35 @@ listed() {
     [ "$output" = $'location ^~ /.well-known/acme-challenge/ {\n\talias /var/lib/dehydrated/acme-challenges/;\n\terror_page 404 @keel_web_no_challenge;\n}\nlocation @keel_web_no_challenge {\n\treturn 404;\n}' ]
 }
 
-# each public server on port 80 includes the redirect glob and the ACME
-# snippet; no other server does
-@test "both sites: only the public server on port 80 includes the redirect and the ACME snippet" {
-    local site
-    for site in keel-default default-anubis; do
+# each public server on port 80 includes the redirect glob and its own
+# glob of the ACME link that http-mode makes (0.4.3); no other server
+# does, and no site includes the ACME snippet by its path: a route of
+# keel-default.d or keel-front.d that serves the challenge itself would
+# then be a duplicate location, and Nginx would not start
+@test "both sites: only the public server on port 80 includes the redirect and its own ACME link" {
+    local site acme
+    for site in keel-default:site default-anubis:front; do
+        acme="${site#*:}"
+        site="${site%%:*}"
         run grep -c 'include /etc/nginx/keel-web/http-\*.conf;' "$PACKAGE_DIR/$site"
         [ "$output" = 1 ]
-        run grep -c 'include /etc/nginx/snippets/keel-web-acme.conf;' "$PACKAGE_DIR/$site"
+        run grep -c "include /etc/nginx/keel-web/$acme-acme\\*.conf;" "$PACKAGE_DIR/$site"
+        [ "$output" = 1 ]
+        run grep -c -e 'keel-web-acme.conf;' -e '-acme\*.conf;' "$PACKAGE_DIR/$site"
         [ "$output" = 1 ]
         run awk '/listen \[::\]:80 default_server;/,/^}/' "$PACKAGE_DIR/$site"
-        [[ "$output" == *'include /etc/nginx/keel-web/http-*.conf;'* ]]
-        [[ "$output" == *'include /etc/nginx/snippets/keel-web-acme.conf;'* ]]
+        [[ "$output" == *$'\tinclude /etc/nginx/keel-web/http-*.conf;\n'*$'\tinclude /etc/nginx/keel-web/'"$acme"$'-acme*.conf;\n'* ]]
         [[ "$output" != *'listen [::1]'* ]]
     done
+}
+
+# a site of keel-web 0.4.0 to 0.4.2 that dpkg keeps (edited by the
+# operator) includes the snippet by its path and the glob http-*.conf:
+# the ACME links must not match that glob
+@test "the ACME links are not matched by the redirect glob of the older sites" {
+    run grep -o -E 'keel-web/[a-z]+-acme\.conf' "$PACKAGE_DIR/http-mode"
+    [ "$(sort -u <<< "$output")" = $'keel-web/front-acme.conf\nkeel-web/site-acme.conf' ]
+    [[ "$output" != *"keel-web/http-"*"acme"* ]]
 }
 
 # the loopback of port 80 is the site's, with the server of 443, which
@@ -559,10 +585,14 @@ machine_cert() {
     mkdir -p "$PR/etc/nginx/keel-web" "$PR/etc/anubis"
     ln -s /usr/share/keel-web/http-redirect.conf "$PR/etc/nginx/keel-web/http-redirect.conf"
     ln -s /usr/share/keel-web/anubis-http.env "$PR/etc/anubis/keel-web-http.env"
+    ln -s /etc/nginx/snippets/keel-web-acme.conf "$PR/etc/nginx/keel-web/site-acme.conf"
+    ln -s /etc/nginx/snippets/keel-web-acme.conf "$PR/etc/nginx/keel-web/front-acme.conf"
     run postrm remove
     [ "$status" -eq 0 ]
     [ ! -L "$PR/etc/nginx/keel-web/http-redirect.conf" ]
     [ ! -L "$PR/etc/anubis/keel-web-http.env" ]
+    [ ! -L "$PR/etc/nginx/keel-web/site-acme.conf" ]
+    [ ! -L "$PR/etc/nginx/keel-web/front-acme.conf" ]
 }
 
 @test "postrm leaves files of the operator's where http-mode's links go" {
@@ -571,10 +601,14 @@ machine_cert() {
     mkdir -p "$PR/etc/nginx/keel-web" "$PR/etc/anubis"
     ln -s /srv/other "$PR/etc/nginx/keel-web/http-redirect.conf"
     echo "COOKIE_SECURE=true" > "$PR/etc/anubis/keel-web-http.env"
+    ln -s /srv/acme.conf "$PR/etc/nginx/keel-web/site-acme.conf"
+    echo "# the operator's" > "$PR/etc/nginx/keel-web/front-acme.conf"
     run postrm purge
     [ "$status" -eq 0 ]
     [ "$(readlink "$PR/etc/nginx/keel-web/http-redirect.conf")" = /srv/other ]
     [ -f "$PR/etc/anubis/keel-web-http.env" ]
+    [ "$(readlink "$PR/etc/nginx/keel-web/site-acme.conf")" = /srv/acme.conf ]
+    [ -f "$PR/etc/nginx/keel-web/front-acme.conf" ]
 }
 
 @test "postrm upgrade changes nothing" {
