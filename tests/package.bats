@@ -20,6 +20,7 @@ ANUBIS_DROPIN=usr/lib/systemd/system/anubis@keel.service.d/keel-web.conf
 SITE_SNIPPET=etc/nginx/snippets/keel-web-site.conf
 FRONT_SNIPPET=etc/nginx/snippets/keel-web-front.conf
 ACME_SNIPPET=etc/nginx/snippets/keel-web-acme.conf
+SCHEME_CONF=etc/nginx/conf.d/keel-web-scheme.conf
 HTTP_MODE=usr/lib/keel-web/http-mode
 DEBIAN_TEXT="# Debian's default server, as nginx-common ships it"
 
@@ -84,12 +85,13 @@ listed() {
     cmp "$PACKAGE_DIR/nginx/keel-web-site.conf" "$BUILD/root/$SITE_SNIPPET"
     cmp "$PACKAGE_DIR/nginx/keel-web-front.conf" "$BUILD/root/$FRONT_SNIPPET"
     cmp "$PACKAGE_DIR/nginx/keel-web-acme.conf" "$BUILD/root/$ACME_SNIPPET"
+    cmp "$PACKAGE_DIR/nginx/keel-web-scheme.conf" "$BUILD/root/$SCHEME_CONF"
     run listed "$SITE"
     [[ "$output" == "-rw-r--r-- root/root "* ]]
     run listed "$FRONT"
     [[ "$output" == "-rw-r--r-- root/root "* ]]
     run bash -c "dpkg-deb -I '$DEB' conffiles | sort"
-    [ "$output" = "$(printf '/%s\n' "$FRONT" "$SITE" "$ACME_SNIPPET" "$FRONT_SNIPPET" "$SITE_SNIPPET" | sort)" ]
+    [ "$output" = "$(printf '/%s\n' "$FRONT" "$SITE" "$ACME_SNIPPET" "$FRONT_SNIPPET" "$SITE_SNIPPET" "$SCHEME_CONF" | sort)" ]
 }
 
 @test "the pages of the default site are installed under /usr/share, never /var/www" {
@@ -124,12 +126,21 @@ listed() {
     [ -f "$BUILD/control/postrm" ]
 }
 
+@test "the scheme map is on only for the app socket with an HTTPS front, else \$https" {
+    run grep -c -E '^map "\$server_addr\|\$http_x_forwarded_proto" \$keel_web_https \{$' "$PACKAGE_DIR/nginx/keel-web-scheme.conf"
+    [ "$output" = 1 ]
+    run grep -E $'^\t"' "$PACKAGE_DIR/nginx/keel-web-scheme.conf"
+    [ "$output" = $'\t"unix:/run/nginx/keel-app.sock|https" on;' ]
+    run grep -c -E $'^\tdefault \\$https;$' "$PACKAGE_DIR/nginx/keel-web-scheme.conf"
+    [ "$output" = 1 ]
+}
+
 @test "it installs the manifest, the two sites and their snippets, the three pages, the hook, http-mode with its units and files, the drop-ins, the lintian override and their documentation, nothing more" {
     run bash -c "dpkg-deb -c '$DEB' | awk '{print \$6}' | grep -v '/\$' | sort"
     [ "$status" -eq 0 ]
     expected="$(printf '%s\n' "./$SITE" "./$FRONT" "./$HOOK" "./$DROPIN" \
         "./$PAGES/index.html" "./$PAGES/404.html" "./$PAGES/50x.html" \
-        "./$SITE_SNIPPET" "./$FRONT_SNIPPET" "./$ACME_SNIPPET" \
+        "./$SITE_SNIPPET" "./$FRONT_SNIPPET" "./$ACME_SNIPPET" "./$SCHEME_CONF" \
         "./$HTTP_MODE" "./$ANUBIS_DROPIN" \
         ./usr/share/keel-web/http-redirect.conf ./usr/share/keel-web/anubis-http.env \
         ./usr/lib/systemd/system/keel-web-http.service \

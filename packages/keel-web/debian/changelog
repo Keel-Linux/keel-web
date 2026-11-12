@@ -1,3 +1,19 @@
+keel-web (0.4.4) trixie; urgency=medium
+
+  * /etc/nginx/conf.d/keel-web-scheme.conf, a conffile: a map that gives
+    $keel_web_https. It is "on" for a request on the app socket
+    (unix:/run/nginx/keel-app.sock) whose front was HTTPS, from the
+    X-Forwarded-Proto that the front sets to its own scheme, and $https
+    everywhere else. Behind Anubis the server of the application had an
+    empty $https, so Nextcloud made http:// links on a request to port
+    443. An application route opts in with
+    "fastcgi_param HTTPS $keel_web_https if_not_empty;" after
+    fastcgi_params. Port 80 keeps http:// links (decision 0079). Tested by
+    hand on an LNMP pair with Nextcloud 35 (handbook decision 0087, option
+    B, which the maintainer chose on 2026-11-12).
+
+ -- KeelLinux maintainers <admin@keellinux.org>  Thu, 12 Nov 2026 03:00:00 +0000
+
 keel-web (0.4.3) trixie; urgency=medium
 
   * A route that serves the ACME challenge itself keeps it. The public
