@@ -11,7 +11,9 @@
 # and after keel-web-http.service, whose http-mode decides from that
 # certificate what port 80 does (decision 0079): the two files it links
 # go under /usr/share/keel-web, the snippets the sites include are
-# conffiles in /etc/nginx/snippets.
+# conffiles in /etc/nginx/snippets. keel-web-scheme.conf, the scheme of
+# the client for an application behind Anubis, is a conffile in
+# /etc/nginx/conf.d, the http context.
 
 PKG = debian/keel-web
 
@@ -36,6 +38,7 @@ execute_after_dh_auto_install:
 	install -D -m 0644 nginx/keel-web-site.conf $(PKG)/etc/nginx/snippets/keel-web-site.conf
 	install -D -m 0644 nginx/keel-web-front.conf $(PKG)/etc/nginx/snippets/keel-web-front.conf
 	install -D -m 0644 nginx/keel-web-acme.conf $(PKG)/etc/nginx/snippets/keel-web-acme.conf
+	install -D -m 0644 nginx/keel-web-scheme.conf $(PKG)/etc/nginx/conf.d/keel-web-scheme.conf
 	install -D -m 0644 nginx/http-redirect.conf $(PKG)/usr/share/keel-web/http-redirect.conf
 	install -D -m 0644 anubis-http.env $(PKG)/usr/share/keel-web/anubis-http.env
 	install -D -m 0755 http-mode $(PKG)/usr/lib/keel-web/http-mode
